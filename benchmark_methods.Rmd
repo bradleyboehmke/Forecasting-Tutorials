@@ -1,0 +1,120 @@
+---
+title: "Benchmark Methods & Forecast Accuracy"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, collapse = TRUE)
+```
+
+In this tutorial, you will learn general tools that are useful for many different forecasting situations. It will describe some methods for benchmark forecasting, methods for checking whether a forecasting method has adequately utilized the available information, and methods for measuring forecast accuracy. Each of the tools discussed in this tutorial will be used repeatedly in subsequent tutorials as you develop and explore a range of forecasting methods.
+
+<br>
+
+## tl;df
+This tutorial serves as an introduction to basic benchmarking approaches for time series data and covers:
+
+1. [Replication requirements](#replication): What you'll need to reproduce the analysis.
+2. [Naive Forecasting Methods](#naive): A simple but useful benchmark approach.
+3. [Fitted Values and Residuals](#resids): Always check the residuals.
+4. [Training and Test Sets](#training):
+7. [Exercises](#exercises): Practice what you've learned.
+
+<br>
+
+## Replication Requirements {#replication}
+This tutorial leverages a variety of data sets to illustrate unique time series features.  The data sets are all provided by the `forecast` and `fpp2` packages.  Furthermore, these packages provide various functions for computing and visualizing basic time series components.
+
+```{r}
+library(forecast)
+library(fpp2)
+```
+
+<br>
+
+## Naive Forecasting Methods {#naive}
+
+The very simplest forecasting method is to use the last observed value. Sometimes, this is the best that can be done for many time series including most stock price data (for reasons illustrated in the [previous tutorial's exercise](ts_exploration#exercises)). This is called a naive forecast and is implemented with the `naive` function. Even if it is not a good forecasting method, it provides a useful benchmark for other forecasting methods.  Here, we use `naive` to forecast the next 10 values.
+
+The resulting output is an object of class `forecast`. This is the core class of objects in the forecast package, and there are many functions for dealing with them.  We can print off the model summary with `summary`, which provides us with the residual standard deviation, some error measures (which we will cover later), and the actual forecasts.   
+
+```{r}
+fc_goog <- naive(goog, 10)
+summary(fc_goog)
+```
+
+You will notice the forecast output provides a point forecast (the last observed value in the `goog` data set) and prediction confidence levels at the 80% and 95% level. A prediction interval gives an interval within which we expect $y_i$ to lie with a specified probability. For example, assuming the forecast errors are uncorrelated and normally distributed, then a simple 95% prediction interval for the next observation in a time series is
+
+$$\hat y_t \pm 1.96 \hat{\sigma} \tag{1}$$
+
+where $\hat{\sigma}$^ is an estimate of the standard deviation of the forecast distribution. In forecasting, it is common to calculate 80% intervals and 95% intervals, although any percentage may be used.
+
+When forecasting one-step ahead, the standard deviation of the forecast distribution is almost the same as the standard deviation of the residuals. (In fact, the two standard deviations are identical if there are no parameters to be estimated such as with the naive method. For forecasting methods involving parameters to be estimated, the standard deviation of the forecast distribution is slightly larger than the residual standard deviation, although this difference is often ignored.)
+
+For example, consider our naive forecast for the `goog` data. The last value of the observed series is 838.96, so the forecast of the next value is 838.96 and the standard deviation of the residuals from the naive method is 8.91. Hence, a 95% prediction interval for the next value of `goog` is
+
+$$838.96 \pm 1.96(8.91) = [856, 821].$$
+
+Similarly, an 80% prediction interval is given by
+
+$$838.96 \pm 1.28(8.91) = [850, 828].$$
+
+The value of prediction intervals is that they express the uncertainty in the forecasts. If we only produce point forecasts, there is no way of telling how accurate the forecasts are. But if we also produce prediction intervals, then it is clear how much uncertainty is associated with each forecast.  Thus, with the naive forecast on the next `goog` value, we can be 80% confident that the next value will be in the range of 828-850 and 95% confident that the the value will be between 821-856.
+
+We can illustrate this prediction interval by plotting the naive model (`fc_goog`).  Here, we see the black point estimate line flat-line (equal to the last observed value) and the colored bands represent our 80% and 95% prediction confidence interval. 
+
+```{r naive_fc, fig.align='center', fig.width=7, fig.height=4}
+# forecast next 25 values
+fc_goog <- naive(goog, 25)
+
+autoplot(fc_goog)
+```
+
+For seasonal data, a related idea is to use the corresponding season from the last year of data. For example, if you want to forecast the sales volume for next March, you would use the sales volume from the previous March. This is implemented in the `snaive` function, meaning, *seasonal naive.*
+
+Here I use `snaive` to forecast the next 16 values for the `ausbeer` series.  Here we see that the 4th quarter for each future year is 488 which is the last observed 4th quarter value in 2009.
+
+```{r}
+fc_beer <- snaive(ausbeer, 16)
+summary(fc_beer)
+```
+
+Similar to `naive`, we can plot the `snaive` model with autoplot.
+
+```{r snaive_fc, fig.align='center', fig.width=7, fig.height=4}
+autoplot(fc_beer)
+```
+
+<br>
+
+## Fitted Values and Residuals {#resids}
+
+When applying a forecasting method, it is important to always check that the residuals are well-behaved (i.e., no outliers or patterns) and resemble white noise. Essential assumptions for an appropriate forecasting model include residuals being:
+
+- uncorrelated
+- have mean zero
+
+Furthermore, the prediction intervals are computed assuming that the residuals:
+
+- have constant variance
+- are normally distributed
+
+A convenient function to use to check these assumptions is the `checkresiduals` function.  This function produces a time plot, ACF plot, histogram, and a Ljung-Box test on the residuals.  Here, I use `checkresiduals` for the `fc_goog` naive model.  We see that the top plot shows residuals that appear to be white noise (no discernable pattern), the bottom left plot shows only a couple lags that exceed the 95% confidence interval, bottom right plot shows the residuals to be approximately normally distributed, and the Ljung-Box test results shows a p-value of 0.22 suggesting the residuals are white noise.
+
+```{r fc_goog_checkresids, fig.align='center', fig.width=7, fig.height=5}
+checkresiduals(fc_goog)
+```
+
+If we compare that to the `fc_beer` seasonal naive model we see that there is an apparent pattern in the residual time series plot, the ACF plot shows several lags exceeding the 95% confidence interval, and the Ljung-Box test has a statistically significant p-value suggesting the residuals are not purely white noise.
+
+```{r fc_beer_checkresids, fig.align='center', fig.width=7, fig.height=5}
+checkresiduals(fc_beer)
+```
+
+<br>
+
+## Training & Test Sets {training}
+
+A  training set is a data set that is used to discover possible relationships. A test set is a data set that is used to verify the strength of these potential relationships. When you separate a data set into these parts, you generally allocate more of the data for training, and less for testing.
+
+One function that can be used to create training and test sets is `subset.ts()`, which returns a subset of a time series where the start and end of the subset are specified using index values.
