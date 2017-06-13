@@ -1,0 +1,257 @@
+---
+title: "Moving Averages"
+output: html_document
+---
+
+Moving averages are smoothing methods that do exactly what their name implies. The user must decide how many points to include in the moving average, which presents a trade-off between capturing the shape of the data while avoiding pitfalls such as modeling the noise. The concept of moving averages can be extended to perform forecasting, that application will not be discussed in this tutorial.
+
+###tl;dr
+
+1. [Replication Requirements](#replication-requirements): What you'll need to replicate the analysis in this tutorial
+
+2. [Preparing Our Data](#preparing-our-data): Cleaning up the data to make it easy to work with
+
+3. [Simple Moving Averages](#simple-moving-averages): Technique for calculating and displaying a simple moving average
+
+4. [Moving Averages of Moving Averages](#moving-averages-of-moving-averages): Using the concept of simple moving averages to perform multi-step smoothing
+
+5. [Weighted Moving Averages](#weighted-moving-averages): Smoothing by use of weights specifically chosen for their mathematical properties
+
+###Replication Requirements
+
+There are four R packages outside of the base set of functions that will be used in the tutorial. The first two, ``tidyverse`` and ``gridExtra``, work together to create customizable and easily interpretable visualizations of the data. The ``lubridate`` package allows the user to manipulate dates, and the ``fpp2`` package allows for many of the processes described to be executed with fewer commands.
+
+```{r message=FALSE}
+library(tidyverse)      # data manipulation and visualization
+library(gridExtra)      # arrange figures and plots
+library(lubridate)      # easily work with dates and times
+library(fpp2)           # working with time series data
+```
+
+There are two built-in R data sets that will be used for examples in this tutorial. ``elecsales`` is a time series of annual electricity sales in South Australia from 1989 to 2008 in GigaWatt hours (GWh). The second data set, ``AirPassengers`` is a time series that tracks the number of international airline passengers (in thousands) by month from 1949 to 1960. Before performing analysis, we must do some preliminary cleaning of the two data sets.
+
+```{r}
+# first data set
+data("elecsales")
+Elec <- data.frame(elecsales)
+
+# second data set
+data("AirPassengers")
+Passengers <- data.frame(AirPassengers)
+```
+
+###Preparing Our Data
+
+The ``elecsales`` data does not require all that much cleaning. We need to adjust the column name of the sales data and add a column for the year. We then convert the sales column from a time series (`ts`) object to a vector of double-precision numbers in the data frame.
+
+```{r}
+#-----------------------------PREPARE FIRST DATA SET---------------------------
+# rename data frame column and add years
+colnames(Elec) <- "GWh"
+Elec$year <- 1989:2008
+
+# convert ts object to numeric
+Elec$GWh <- as.double(Elec$GWh)
+```
+
+The ``AirPassengers`` data requires more work, as this data set is in monthly, not yearly, increments. After renaming the column that tallies the number of passengers, we convert it from a `ts` to a `double`. Next, we add a date to each observation. Dates in R are required to be in `YYYY-MM-DD` format, so we assign each observation to be the first day of the given month.
+
+```{r}
+#----------------------------PREPARE SECOND DATA SET---------------------------
+# add labels to observations
+colnames(Passengers) <- "nPass"
+
+# convert number of passengers from time series object to double precision numbers
+Passengers$nPass <- as.double(Passengers$nPass)
+
+# add date to each observation
+Passengers$Month <- rep(as.Date("1949-01-01"),nrow(Passengers))
+for (i in 2:nrow(Passengers)) {
+  month(Passengers$Month[i]) <- month(Passengers$Month[i-1]) + 1
+  year(Passengers$Month[i]) <- 1949 + floor((i-1)/12)
+}
+```
+
+
+###Simple Moving Averages
+
+The most straightforward method is called a simple moving average. For this method, we choose a number of nearby points and average them to estimate the trend. When calculating a simple moving average, it is beneficial to use an odd number of points so that the calculation is symmetric. For example, to calculate a 5 point moving average, the formula is:
+
+$$
+\hat{y_t} = \dfrac{y_{t-2} + y_{t-1} + y_{t} + y_{t+1} + y_{t+2}}{5}
+$$
+
+where *t* is the time step that you are smoothing at and 5 is the number of points being used to calculate the average (which moving forward will be denoted $m$). A 5-point moving average uses time steps inside of $t \pm 2$, so we can figure out how many points to include in the calculation by calculating $k = (m-1)/2$. As an example, we will analyze the differences between several choices of $m$, and initialize new columns in our data frame to store these moving averages.
+
+```{r}
+# number of points in average (m) and number of points on each side of t (k)
+m <- c(3,5,7,9)
+k <- (m-1)/2
+
+# initialize moving averages
+Elec$ma3 <- rep(NA,nrow(Elec))
+Elec$ma5 <- rep(NA,nrow(Elec))
+Elec$ma7 <- rep(NA,nrow(Elec))
+Elec$ma9 <- rep(NA,nrow(Elec))
+```
+
+We have chosen the following values for $m$: `r m`. A set of for loops will perform all four moving average calculations at once. Notice that each moving average begins at a different point, depending on how many points are being used. For example, for a 9-MA, you need to be at least 5 points into the data set to calculate an average, so the first four entries will be `r NA`s.
+
+```{r}
+# calculate moving averages
+for (i in k) {
+  for (j in (i+1):(nrow(Elec)-i)) {
+    if (i == 1) {Elec$ma3[j] <- mean(Elec$GWh[(j-i):(j+i)])}
+    if (i == 2) {Elec$ma5[j] <- mean(Elec$GWh[(j-i):(j+i)])}
+    if (i == 3) {Elec$ma7[j] <- mean(Elec$GWh[(j-i):(j+i)])}
+    if (i == 4) {Elec$ma9[j] <- mean(Elec$GWh[(j-i):(j+i)])}
+  }
+}
+
+# construct plot objects
+MovAvg3 <- ggplot() + geom_point(data = Elec, aes(x = year, y = GWh), color = "black") +
+  geom_line(data = Elec, aes(x = year, y = ma3), color = "red") + ggtitle("3-MA") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+```{r echo=FALSE}
+MovAvg5 <- ggplot() + geom_point(data = Elec, aes(x = year, y = GWh), color = "black") +
+  geom_line(data = Elec, aes(x = year, y = ma5), color = "red") + ggtitle("5-MA") +
+  theme(plot.title = element_text(hjust = 0.5))
+MovAvg7 <- ggplot() + geom_point(data = Elec, aes(x = year, y = GWh), color = "black") +
+  geom_line(data = Elec, aes(x = year, y = ma7), color = "red") + ggtitle("7-MA") +
+  theme(plot.title = element_text(hjust = 0.5))
+MovAvg9 <- ggplot() + geom_point(data = Elec, aes(x = year, y = GWh), color = "black") +
+  geom_line(data = Elec, aes(x = year, y = ma9), color = "red") + ggtitle("9-MA") +
+  theme(plot.title = element_text(hjust = 0.5))
+```
+
+The same `ggplot()` structure shown above was used to create plots for the other three values of $m$. We now arrange the plots and examine them side-by-side for comparison.
+
+```{r message=FALSE, warning=FALSE, fig.align="center"}
+# arrange plots
+grid.arrange(nrow = 2, MovAvg3, MovAvg5, MovAvg7, MovAvg9)
+```
+
+You may notice that as the number of points used for the average increases, the curve becomes smoother and smoother. Choosing a value for $m$ is a balance between eliminating noise while still capturing the data's true structure. For this set, $m = 9$ is little more than what you would get using linear regression, while $m = 3$ offers little more than just looking at the data itself.
+
+####Using the fpp2 package
+
+A simple moving average can also be plotted by using the ``autoplot()`` contained in the ``fpp2`` package. The data is plotted in line 1 of the following code, while the moving average (calculated using the ``ma()`` function) is plotted in the second layer. These functions require a ``ts`` object as the main argument, so the original time series data is used, not the data frame we created.
+
+```{r warning=FALSE, fig.align="center"}
+autoplot(elecsales, series = "Data") + 
+  autolayer(ma(elecsales,5), series = "5-MA") +
+  xlab("Year") + ylab("GWh") +
+  ggtitle("Annual electricity sales: South Australia") +
+  scale_colour_manual(values = c("Data" = "grey50", "5-MA" = "red"),
+                      breaks = c("Data","5-MA"))
+```
+
+This plot is identical to the 5-MA plot constructed above, with a few aesthetic differences such as colors and labels.
+
+###Moving Averages of Moving Averages
+
+The concept of simple moving averages can be extended to taking moving averages of moving averages. This technique is often employed with an even number of data points so that the final product is symmetric around each point. 
+
+```{r}
+# number of points to be included in average
+m <- 4
+k <- m/2
+
+# moving average
+Elec$ma4 <- rep(NA,nrow(Elec))
+for (i in k:(nrow(Elec)-k)) {
+  Elec$ma4[i] <- mean(Elec$GWh[(i-k+1):(i+k)])
+}
+```
+
+An even-numbered moving average is unbalanced, and for our purposes, the unbalancing will be in favor of more recent observations. For example, to calculate a 4-MA, the equation is as follows:
+
+$$
+\hat{y_t} = \dfrac{y_{t-1} + y_{t} + y_{t+1} + y_{t+2}}{4}
+$$
+
+To make the moving average symmetric (and therefore more accurate), we then take a 2-MA of the 4-MA to create a **2 x 4-MA**. For the 2-MA step, we average the current and previous moving averages, thus resulting in an overall estimate of:
+
+$$
+\hat{y_t} = \dfrac{1}{8}y_{t-2} + \dfrac{1}{4}y_{t-1} + \dfrac{1}{4}y_{t} + \dfrac{1}{4}y_{t+1} + \dfrac{1}{8}y_{t+2}
+$$
+
+```{r message=FALSE, warning=FALSE, fig.align="center"}
+# calculate moving average of moving average
+Elec$ma2x4 <- rep(NA,nrow(Elec))
+for (i in 2:nrow(Elec)) {
+  Elec$ma2x4[i] <- mean(Elec$ma4[(i-1):i])
+}
+
+# plot results
+ggplot() + geom_point(data = Elec, aes(x = year, y = GWh), color = "black") +
+  geom_line(data = Elec, aes(x = year, y = GWh), color = "black") +
+  geom_line(data = Elec, aes(x = year, y = ma2x4), color = "red", size = 1)
+```
+
+This 2 x 4-MA process produces the best fit yet. It massages out some of the noise while maintaining the overall trend of the data. Other combinations of moving averages are possible, such as 3 x 3-MA. To maintain symmetry, if your first moving average is an even number of points, the follow-up MA should also contain an even number. Likewise, if your first MA uses an odd number of points, the follow-up should use an odd number of points.
+
+####Using the fpp2 package
+
+The same ``autoplot()`` function used previously can be used for to calculate moving averages of moving averages. To perform a multi-step moving average, in the ``ma()`` function, you must choose an even number for ``order`` and set ``centre = TRUE``.
+
+```{r warning=FALSE, fig.align="center"}
+autoplot(elecsales, series = "Data") + 
+  autolayer(ma(elecsales, order = 4, centre = TRUE), series = "2x4-MA") +
+  xlab("Year") + ylab("GWh") +
+  ggtitle("Annual electricity sales: South Australia") +
+  scale_colour_manual(values = c("Data" = "grey50", "2x4-MA" = "red"),
+                      breaks = c("Data","2x4-MA"))
+```
+
+This plot is identical to the **2 x 4-MA** plot constructed above, with a few differences in teh plot aesthetics.
+
+###Weighted Moving Averages
+
+A moving average of a moving average can be thought of as a symmetric MA that has different weights on each nearby observation. The most common use of a weighted moving average places weight $1/(2m)$ on the previous and following observations on the same season, while assigning weight $1/m$ on the other observations in the time period.
+
+For example, the ``Passengers`` data contains an entry for every month in a 12 year span, so a time period would consist of 12 time units. A **2 x 12-MA** set-up is the preferred method for such data. The observation itself, as well as the 5 observations immediately before and after it, receives weight 1/12, while the data point for that month last year and that month the following year both receive weight 1/24. The weights are assigned and can be seen in the vector output shown below:
+
+```{r}
+# initialize 2 x 12-MA
+Passengers$ma2x12 <- rep(NA,nrow(Passengers))
+
+# calculate weights
+weights <- c(1/24,rep(1/12,11),1/24)
+weights
+```
+
+To calculate the 2 x 12-MA, which is a weighted MA with the weights specified previously, a for loop of matrix multiplication is utilized. The weighted MA is shown in the figure below.
+
+```{r warning=FALSE, fig.align="center"}
+# moving average value
+m <- 12
+k <- m/2
+
+# calculate weighted MA
+for (i in (k+1):(nrow(Passengers)-k-1)) {
+  Passengers$ma2x12[i] <- weights %*% Passengers$nPass[(i-k):(i+k)]
+}
+
+# plot results
+ggplot() + geom_point(data = Passengers, aes(x = Month, y = nPass), color = "black") +
+  geom_line(data = Passengers, aes(x = Month, y = nPass), color = "black") +
+  geom_line(data = Passengers, aes(x = Month, y = ma2x12), color = "red", size = 1)
+```
+
+This weighted average describes the trend in the data while eliminating the effect of seasonality on the pattern.
+
+####Using the fpp2 package
+
+The same process can be performed using the ``fpp2`` package. We set `centre = TRUE` and `order = 12` in the ``ma()`` function. Some additional plot aesthetics are adjusted as well.
+
+```{r warning=FALSE, fig.align="center"}
+autoplot(AirPassengers, series = "Data") + 
+  autolayer(ma(AirPassengers, order = 12, centre = T), series = "2x12-MA") +
+  xlab("Year") + ylab("GWh") +
+  ggtitle("Annual electricity sales: South Australia") +
+  scale_colour_manual(values = c("Data" = "grey50", "2x12-MA" = "red"),
+                      breaks = c("Data","2x12-MA"))
+```

@@ -1,0 +1,599 @@
+---
+title: "Exponential Forecasting"
+output: html_document
+---
+
+Forecasting involves using previously collected time series data to predict future data points. One subset of forecasting, Exponential forecasting, places greater weight on recent observations and less weight on older observations. This method lends itself nicely to making predictions in components, where one component equation estimates the level variation, another component estimates the linear trend, and if necessary, a final component estimates the seasonal structure in the the time series. The methods presented in this tutorial are applicable to a wide range of time series.
+
+## tl;dr
+
+1. [Replication Requirements](#replication-requirements): What you'll need to reproduce the analysis in this tutorial
+2. [Simple Exponential Smoothing](#simple-exponential-smoothing): Techniques to use time series data to make a prediction one time unit into the future
+3. [Holt's Method](#holts-method): Techniques to use time series data with a trend to make future predictions
+4. [Holt-Winters Seasonal Method](#holt-winters-seasonal-method): Techniques to use time series data with a trend and seasonality to make future predictions
+5. [Model Selection and Error Calculations](#model-selection-and-error-calculations): Discussion of how to calculate errors in exponential forecasting
+6. [Prediction Intervals](#prediction-intervals): Using software to simulate prediction intervals for the predicted data points
+
+
+## Replication Requirements
+
+This tutorial uses data from the built-in R data set ``r "AirPassengers"``. This data set lists the number of international airline passengers month-by-month from 1949 to 1960 in thousands of passengers. Throughout the tutorial, we will use several R packages in addition to the base set of functions. The ``r "tidyverse"`` package enables the user to manipulate and visualize the data more efficiently, the ``r "lubridate"`` package allows the user to easily work with dates, and the ``r "fpp2"`` package performs the exponential forecasting techniques described with fewer commands. The ``r "gridExtra"`` package allows for multiple plot objects to be neatly displayed together.
+
+```{r message=FALSE}
+library(tidyverse)      # data manipulation and visualization
+library(lubridate)      # easily work with dates and times
+library(fpp2)           # exponential forecasting procedure
+library(gridExtra)      # arrange figures and plots
+
+data("AirPassengers")
+Passengers <- data.frame(AirPassengers)
+```
+
+In order to use this data set to make interpretable predictions, we add the date to each observation. Because the data is monthly and R requires a full date, we assign the first day of each month to the corresponding observation. The new data set will have two columns: 1) a date which represents the first day of the month and 2) the number of international airline passengers during that month (in thousands).
+
+```{r message=FALSE}
+# add labels to observations
+colnames(Passengers) <- "nPass"
+
+# convert number of passengers from time series object to double precision numbers
+Passengers$nPass <- as.double(Passengers$nPass)
+
+# add date to each observation
+Passengers$Month <- rep(as.Date("1949-01-01"),nrow(Passengers))
+for (i in 2:nrow(Passengers)) {
+  month(Passengers$Month[i]) <- month(Passengers$Month[i-1]) + 1
+  year(Passengers$Month[i]) <- 1949 + floor((i-1)/12)
+}
+```
+
+```{r echo=FALSE}
+head(Passengers,6)
+```
+
+
+
+## Simple Exponential Smoothing
+
+In order to make predictions, we will use the data we've already collected to inform our estimate. For exponential smoothing, we weigh the recent observations more heavily than older observations. The weight of each observation is determined through the use of a *smoothing parameter*, which we will denote $\alpha$.
+
+For a data set with $T$ observations, we calculate our predicted value, $\hat{y}_{T+1}$, which will be based on $y_{1}$ through $y_{T}$ as follows:
+
+$$
+\hat{y}_{T+1} = \alpha{y_T} + \alpha(1-\alpha)y_{T-1} + \dots + \alpha(1-\alpha)^{T-1}y_{1}
+$$
+
+This equation is relatively straightforward to program and calculates exactly the prediction that we want. However, it will benefit us moving forward to use the component form of this model, which uses the following set of equations.
+
+$$
+\hat{y}_{t+1} = l_{t}
+$$
+
+$$
+l_{t} = \alpha{y_{t}} + (1 - \alpha)l_{t-1}
+$$
+
+Notice that the most weight is still placed on the most recent observation. We will use the component form because as we add to this model, it will be easier to add a component equation rather than adjust the structure of our prediction equation. As an example of simple exponential smoothing, we will look at the number of passengers for each month in 1949:
+
+```{r}
+# subset data from first year in the data set
+Pass.1949 <- filter(Passengers, Month < "1950-01-01")
+Pass.1949$Type <- rep("Observation",nrow(Pass.1949))
+```
+
+We denote the already-observed data points as "Observations". Next, we pick a smoothing coefficient. A smoothing coefficient close to 0 will place more weight on older observations, while a smoothing coefficient close to 1 will heavily weight the most recent point in our prediction. The choice of a smoothing parameter affects our estimate, and there are methods for optimizing this choice, but for now, we'll choose an estimate that doesn't weight recent observations much more than older observations, $\alpha$ = 0.2.
+
+```{r}
+# smoothing coefficient
+alpha <- 0.2
+
+# add placeholder to data frame for predicted point
+SES.Pass <- data.frame(
+  nPass = 0,
+  Month = Pass.1949$Month[nrow(Pass.1949)]+31,     # add 31 days to the last date
+  Type = "Prediction"
+)
+Pass.1949 <- rbind(Pass.1949, SES.Pass)
+
+# add level component column
+Pass.1949$lt <- rep(NA, nrow(Pass.1949))
+```
+
+Once the placeholder for the predicted point has been added to the data frame, we can calculate the value of our prediction using the component formula and plot the results:
+
+```{r fig.align="center"}
+# initialize level component
+Pass.1949$lt[1] <- Pass.1949$nPass[1]
+
+# calculate fitted values
+for (j in 2:12) {
+  Pass.1949$lt[j] <- alpha*Pass.1949$nPass[j] + (1-alpha)*Pass.1949$lt[j-1]
+}
+
+# calculate predicted value
+Pass.1949$nPass[13] <- alpha*Pass.1949$nPass[12] + (1-alpha)*Pass.1949$lt[12]
+
+# plot data and prediction
+ggplot(data = Pass.1949, aes(x = Month, y = nPass, color = Type)) + xlab("Month") + ylab("Number of Passengers (thousands)") + geom_line() + geom_point()
+```
+
+Plotting points further into the future would not be insightful, because we assume that there is no trend (long-term slope) in this data. Assuming no trend implies that the prediction for each month starting with February 1950 and beyond would be the exact same as the prediction for January 1950. There are limitations to the simple exponential smoothing method, so a more robust method is needed to make predictions when there is a trend in the data.
+
+### Using the fpp2 package
+
+The same process as above can be performed using the ``r "fpp2"`` package, which uses a smoothing parameter that is chosen by minimizing AIC and BIC (measures of error) for the observed data. In the plot below, the dark blue fan represents an 80% prediction interval, while the light blue fan represents a 95% prediction interval. The ``r "ses"`` command takes a time series object as input, which is why ``r "AirPassengers"`` is the argument instead of the data frame we created.
+
+```{r message=FALSE, fig.align="center"}
+# fpp2 package
+# Estimate parameters
+fc <- ses(AirPassengers[1:12], h=3)
+autoplot(fc) + ylab("Number of Passengers (in thousands)") + xlab("Month (starting point: Jan 1949)")
+```
+
+## Holt's Method
+
+Simple Exponential Smoothing does not perform well with data that has a long-term trend. Holt's Method makes predictions for data with a trend using two smoothing parameters, $\alpha$ and $\beta$, which correspond to the level and trend components, respectively. For Holt's method, the prediction will be a line of some non-zero slope that extends from the time step after the last collected data point onwards.
+
+We will use the same data set, but instead of using data from the year 1949, we'll look at the total number of passengers over each year in the time series and attempt to predict the total number of passengers for the year 1961 and beyond.
+
+```{r}
+# calculate total passengers by year
+yearly <- summarise(group_by(Passengers, Year = year(Passengers$Month)), nPass = sum(nPass))
+yearly$Type <- as.factor(rep("Observation",nrow(yearly)))
+
+# smoothing parameters
+alpha <- 0.5
+beta <- 0.5
+
+# how many future years to predict
+future <- 9
+```
+
+As we did with simple exponential smoothing, the collected data will be labeled as "Observations", while the predicted data points will be labeled "Predictions". These placeholding observations must be added to the data frame so that the whole set can be plotted together. Additionally, there is a damped version of Holt's Method that will be discussed. A copy of the year-by-year passenger data will be saved for that purpose.
+
+```{r}
+# add prediction placeholders to data frame
+HM.Pass <- data.frame(
+  Year = max(yearly$Year)+1:future,
+  nPass = rep(0,future),
+  Type = as.factor(rep("Prediction",future))
+)
+yearly <- rbind(yearly,HM.Pass)
+
+#save a version for the damped method
+damp.yearly <- yearly
+```
+
+The methodology for predictions using data with a trend (Holt's Method) uses the following component equations:
+
+$$
+\hat{y}_{t+h} = l_{t} + hb_{t}
+$$
+
+$$
+l_{t} = {\alpha}y_{t} + (1 - \alpha)(l_{t-1} + b_{t-1})
+$$
+$$
+b_{t} = {\beta}(l_{t} - l_{t-1}) + (1 - \beta)b_{t-1}
+$$
+
+Holt's Method can be implemented as follows with the output shown below:
+
+```{r fig.align="center"}
+# initialize the number of future time steps
+h <- 1
+
+# initialize the local and trend components
+yearly$lt <- rep(yearly$nPass[1],nrow(yearly))
+yearly$bt <- rep(0,nrow(yearly))
+
+# Holt's Method
+for (i in 2:(nrow(yearly))) {
+  yearly$lt[i] <- alpha*yearly$nPass[i-1] + (1-alpha)*(yearly$lt[i-1] + yearly$bt[i-1])
+  yearly$bt[i] <- beta*(yearly$lt[i]-yearly$lt[i-1]) + (1-beta)*(yearly$bt[i-1])
+  # make predictions
+  if (i > (nrow(yearly)-future)) {
+    yearly$nPass[i] <- yearly$lt[nrow(yearly)-future] + h*yearly$bt[nrow(yearly)-future]
+    h <- h+1
+  }
+}
+
+# plot results
+ggplot(yearly,aes(x = Year, y = nPass, color = Type)) + geom_line() + geom_point() + xlab("Year") + ylab("Total Number of Passengers (thousands)")
+```
+
+The predictions for this method form a line that attempts to mimic the overall linear trend in the collected data. This is a more useful tool than simple exponential smoothing, because if there is actually no trend in the data, the trend component can equal close to 0 and the process condenses down to the simple exponential smoothing method explained previously.
+
+There is another version of Holt's Method that more conservatively estimates the trend by assuming that the growth or decay will level off. This is called Damped Holt's Method, which uses a damping coefficient denoted $\phi$ to more conservatively estimate the predicted trend.
+
+### Damped Holt's Method
+
+The damping coefficient works similarly to the smoothing coefficients used before. If $\phi$ = 1, the damped method is exactly the same as the regular method, and will not damp at all. If $\phi$ = 0, the damped method is exactly the same as simple exponential smoothing, and will immediately damp out the trend. As $\phi$ increases, the prediction becomes less and less damped. The damping coefficient is rarely less than 0.8, because the damping becomes too strong for values below this threshold.
+
+```{r}
+# damping coefficient
+phi <- 0.85
+```
+
+We will choose a damping coefficient of `r phi` (which will result in a noticeable but not extreme level of damping). Besides this damping coefficient, the method is exactly the same as before, with the following results:
+
+```{r fig.align="center"}
+# initialize local and trend components
+damp.yearly$lt <- rep(damp.yearly$nPass[1],nrow(damp.yearly))
+damp.yearly$bt <- rep(0,nrow(damp.yearly))
+
+# Holt's Damped Method
+for (i in 2:(nrow(damp.yearly))) {
+  # component equations with damping terms added
+  damp.yearly$lt[i] <- alpha*damp.yearly$nPass[i-1] + (1-alpha)*(damp.yearly$lt[i-1] + phi*damp.yearly$bt[i-1])
+  damp.yearly$bt[i] <- beta*(damp.yearly$lt[i]-damp.yearly$lt[i-1]) + (1-beta)*phi*(damp.yearly$bt[i-1])
+  # make predictions
+  if (i > (nrow(damp.yearly)-future)) {
+    d <- 0
+    for (j in 1:(i-nrow(damp.yearly)+future)) {
+      d <- d + phi^j
+    }
+    damp.yearly$nPass[i] <- damp.yearly$lt[nrow(damp.yearly)-future] + (d)*damp.yearly$bt[nrow(damp.yearly)-future]
+  }
+}
+
+# plot results
+ggplot(damp.yearly,aes(x = Year, y = nPass, color = Type)) + geom_line() + geom_point() + xlab("Year") + ylab("Total Number of Passengers (thousands)")
+```
+
+
+### Using the fpp2 package
+
+As with simple exponential smoothing, there is a way to use the ``r "fpp2"`` package to perform Holt's Method with fewer commands. As before, the argument to the functions in this package require a time series object, so we re-structure `r "yearly"` using the `r "ts"` command. We compare the damped prediction to the un-damped prediction in the figure below.
+
+```{r fig.align="center"}
+# convert data frame to a time series object
+yearly.ts <- ts(yearly$nPass[1:(nrow(yearly)-future)], start = 1949)
+
+# fit un-damped and damped Holt's Method
+fc <- holt(yearly.ts, h=5)
+fc.d <- holt(yearly.ts, damped=TRUE, phi = 0.85, h=5)
+
+# plot results
+autoplot(yearly.ts) +
+  autolayer(fc, PI=FALSE, series="Holt's method") +
+  autolayer(fc.d, PI=FALSE, series="Damped Holt's method") +
+  ggtitle("Forecasts from Holt's method") +
+  xlab("Year") + ylab("Number of Passengers (thousands)") +
+  guides(colour=guide_legend(title="Forecast"))
+```
+
+Holt's Method accounts for the long-term trend in data, but doesn't account for the month-to-month variation present in the data set. More people tend to fly during the summer months, but this type of structure is not present using Holt's Method. To relect this additional structure (called *seasonality*), a more robust method is necessary.
+
+## Holt-Winters Seasonal Method
+
+To make predictions using data with a trend and seasonality, we turn to the Holt-Winters Seasonal Method. This method can be implemented with an "Additive" structure or a "Multiplicative" structure, where the choice of method depends on the data set. The Additive model is best used when the seasonal trend is of the same magnitude throughout the data set, while the Multiplicative Model is preferred when the magnitude of seasonality changes as time increases.
+
+### Additive
+
+As an example, we will continue using the same data set, but this time, the entire data set will be present for the calculations. For the Additive model, the component equations are as follows:
+
+$$
+\hat{y}_{t+h} = l_{t} + hb_{t} + s_{t-m+h^{+}_{m}}
+$$
+
+$$
+l_{t} = \alpha(y_{t} - s_{t-m}) + (1 - \alpha)(l_{t-1} + b_{t-1})
+$$
+
+$$
+b_{t} = \beta(l_{t} - l_{t-1}) + (1 - \beta)b_{t-1}
+$$
+
+$$
+s_{t} = \gamma(y_{t} - l_{t-1} - b_{t-1}) + (1-\gamma)s_{t-m}
+$$
+
+In the first equation, $h^{+}_{m} = [(h-1)/m] + 1$. This guarantees that the seasonal component estimates are based on the most recent time cycle.
+
+The Holt-Winters Seasonal Method requires three smoothing parameters, to deal with the level pattern, the trend, and the seasonality, respectively. These smoothing parameters will be denoted $\alpha$, $\beta$, and $\gamma$.
+
+```{r}
+# new data frame
+Add <- Passengers
+Add$nPass <- as.integer(Add$nPass)
+Add$Type <- as.factor(rep("Observation",nrow(Add)))
+
+# smoothing parameters
+alpha <- 0.1
+beta <- 0.3
+gamma <- 0.2
+```
+
+In our case, the seasonality component is months of the year, so there are 12 seasonal "units" in each time cycle. As with the other methods, we add a placeholder for the predicted values to the previously existing data frame.
+
+```{r}
+# number of "seasons" within each time cycle
+m <- 12
+
+# how many months to predict into the future
+future <- 48
+
+# add to data frame
+pred <- data.frame(
+  nPass = rep(0,future),
+  Month = rep(as.Date("1961-01-01"),future),
+  Type = as.factor(rep("Prediction",future))
+)
+month(pred$Month) <- month(pred$Month) + seq(from = 0, to = future-1, by = 1)
+Add <- rbind(Add,pred)
+```
+
+Next, the Additive Method is initialized, with three components now being present in the data frame.
+
+```{r}
+# initialize time steps
+h <- 1
+
+# initialize components
+Add$lt <- rep(0,nrow(Add))
+Add$bt <- rep(0,nrow(Add))
+Add$st <- rep(0,nrow(Add))
+```
+
+The Holt-Winters Seasonal Method requires the initialization of each of the three components at the end of the first time period. To initialize the level component, we take the average of the first 12 months of data. To initialize the trend component, we calculate the slope between the average of the first 12 months and the average of the second 12 months. To initialize the seasonal component, we subtract the average of the first 12 observations from each of the first 12 observations.
+
+Once these initial values are established, the Additive Method is implemented for the observed values and predictions are made for the number of data points that we chose to predict, in our case, `r future` months.
+
+```{r fig.align="center"}
+# calculate local, trend, and seasonality at the end of the first time period
+Add$lt[m] <- mean(Add$nPass[1:m])
+Add$bt[m] <- (sum(Add$nPass[(m+1):(2*m)])-sum(Add$nPass[1:m]))/(m^2)
+for (j in 1:m) {
+  Add$st[j] <- Add$nPass[j] - Add$lt[m]
+}
+
+# Additive Method
+for (i in (m+1):(nrow(Add)-future)) {
+    Add$lt[i] <- alpha*Add$nPass[i] + (1-alpha)*(Add$lt[i-1] + Add$bt[i-1])
+    Add$bt[i] <- beta*(Add$lt[i]-Add$lt[i-1]) + (1-beta)*(Add$bt[i-1])
+    Add$st[i] <- gamma*(Add$nPass[i]-Add$lt[i-1]-Add$bt[i-1]) + (1-gamma)*Add$st[i-m]
+}
+
+# make predictions
+for (j in (nrow(Add)-future+1):nrow(Add)) {
+  Add$st[j] <- Add$st[j-m]
+  Add$nPass[j] <- Add$lt[nrow(Add)-future] + h*Add$bt[nrow(Add)-future] + Add$st[nrow(Add)-future + h - m]
+  h <- h + 1
+}
+
+# plot results
+ggplot(Add,aes(x = Month, y = nPass, color = Type)) + geom_line() + xlab("Year") + ylab("Number of Passengers (thousands)")
+```
+
+This method clearly accounts for the fact that more people tend to fly during the summer months, but does not mirror the increase in amplitude of this trend as time increases. To capture this effect, we must use the Multiplicative Method.
+
+### Multiplicative
+
+The process for the Multiplicative Method is the same general framework as the Additive Method. We begin by choosing values for the same three smoothing parameters. The component equations change slightly, most notably with the implementation of the seasonal term.
+
+$$
+\hat{y}_{t+h} = (l_{t} + hb_{t})s_{t-m+h^{+}_{m}}
+$$
+
+$$
+l_{t} = \alpha\dfrac{y_{t}}{s_{t-m}} + (1 - \alpha)(l_{t-1} + b_{t-1})
+$$
+
+$$
+b_{t} = \beta(l_{t} - l_{t-1}) + (1 - \beta)b_{t-1}
+$$
+
+$$
+s_{t} = \gamma\dfrac{y_{t}}{l_{t-1} - b_{t-1}} + (1-\gamma)s_{t-m}
+$$
+
+Software will automatically choose smoothing parameters by minimizing the errors between the fitted values and the collected data. For illustrative purposes, we will choose the smoothing parameters by hand.
+
+```{r}
+# new data frame
+Mult <- Passengers
+Mult$nPass <- as.integer(Mult$nPass)
+Mult$Type <- as.factor(rep("Observation",nrow(Mult)))
+
+# smoothing parameters
+alpha <- 0.5
+beta <- 0.1
+gamma <- 0.5
+```
+
+The seasonality component is the same as with the Additive Method, and we still want to predict 4 years (48 months) into the "future". We also add placeholder rows to allow for the storing of predicted values.
+
+```{r}
+# seasonality
+m <- 12
+
+# how many time units into the future to predict
+future <- 48
+
+# add placeholders to data frame
+pred <- data.frame(
+  nPass = rep(0,future),
+  Month = rep(as.Date("1961-01-01"),future),
+  Type = as.factor(rep("Prediction",future))
+)
+month(pred$Month) <- month(pred$Month) + seq(from = 0, to = future-1, by = 1)
+Mult <- rbind(Mult,pred)
+```
+
+In the same way that we had to initialize values for the local, trend, and seasonal components of the Additive Method, we must set initial values to perform the Multiplicative Method. The initializations for the local and trend components remain the same, but for the seasonal component, instead of calculating the differences, we now divide each of the first 12 observations by the average value of the first 12 months.
+
+```{r}
+# initialize time steps
+h <- 1
+
+# initialize components
+Mult$lt <- rep(0,nrow(Mult))
+Mult$bt <- rep(0,nrow(Mult))
+Mult$st <- rep(0,nrow(Mult))
+
+# initialize level, trend, and seasonality
+Mult$lt[m] <- mean(Mult$nPass[1:m])
+Mult$bt[m] <- (sum(Mult$nPass[(m+1):(2*m)])-sum(Mult$nPass[1:m]))/(m^2)
+for (j in 1:m) {
+  Mult$st[j] <- Mult$nPass[j]/Mult$lt[m]
+}
+```
+
+Once the initial values have been added to the data frame, we apply the multiplicative method, make predictions, and plot the results:
+
+```{r fig.align="center"}
+# apply multiplicative method
+for (j in (m+1):(nrow(Mult)-future)) {
+  Mult$lt[j] <- alpha*(Mult$nPass[j]/Mult$st[j-m]) + (1-alpha)*(Mult$lt[j-1] + Mult$bt[j-1])
+  Mult$bt[j] <- beta*(Mult$lt[j] - Mult$lt[j-1]) + (1-beta)*Mult$bt[j-1]
+  Mult$st[j] <- gamma*(Mult$nPass[j]/(Mult$lt[j-1] + Mult$bt[j-1])) + (1-gamma)*Mult$st[j-m]
+}
+
+# make predictions
+for (j in (nrow(Mult)-future+1):nrow(Mult)) {
+  Mult$st[j] <- Mult$st[j-m]
+  Mult$nPass[j] <- (Mult$lt[[nrow(Mult)-future]] + h*Mult$bt[nrow(Mult)-future])*Mult$st[nrow(Mult)-future + h - m]
+  h <- h + 1
+}
+
+# plot results
+ggplot(Mult,aes(x = Month, y = nPass, color = Type)) + geom_line() + xlab("Year") + ylab("Number of Passengers (thousands)")
+```
+
+### Using the fpp2 Package
+
+The same processes can be performed using the ``r "fpp2"`` package. The necessary code and results are shown below. Using this package, we can compare the additive and multiplicative forecasts and see that the multiplicative forecast is preferable in our case. We expected this, because the magnitude of seasonality appears to be changing as time increases.
+
+In the fpp2 package, the smoothing parameters $\alpha$, $\beta$, and $\gamma$ are chosen to minimize the Mean Squared Error of the fit for the observed data. For the multiplicative forecast shown, the parameters are $\alpha$ = 0.3076, $\beta$ = 0.0061, and $\gamma$ = 0.601. These can be found using the ``r "summary()"`` command, with ``r "fit2"`` as the argument.
+
+```{r fig.align="center"}
+# fit the additive and multiplicative Holt-Winters methods
+fit1 <- hw(AirPassengers,seasonal="additive")
+fit2 <- hw(AirPassengers,seasonal="multiplicative")
+
+# plot results
+autoplot(AirPassengers) +
+  autolayer(fit1, PI=FALSE, series="Additive Forecasts") +
+  autolayer(fit2, PI=FALSE, series="Multiplicative Forecasts") +
+  xlab("Year") + ylab("Number of Passengers (thousands)") +
+  guides(colour=guide_legend(title="Forecast"))
+```
+
+### Damped Holt-Winters Seasonal Method
+
+As with Holt's Method, there is a damped version of the Holt-Winters Seasonal Method. The mechanics are exactly the same as before. The ``r "fpp2"`` package can be used, by adding the ``r "damped=TRUE"`` argument to the ``r "hw()"`` function. 
+
+```{r fig.align="center"}
+# fit the damped Holt-Winters Seasonal Method
+fit3 <- hw(AirPassengers, h = 48, damped=TRUE, seasonal="multiplicative")
+
+# plot results
+autoplot(AirPassengers) +
+  autolayer(fit3, PI=FALSE, series="Damped Multiplicative Forecasts") +
+  xlab("Year") + ylab("Number of Passengers (thousands)") +
+  guides(colour=guide_legend(title="Forecast"))
+```
+
+As you may notice, the trend component is being damped. The seasonality effect continues to grow, but the trend levels off under this method. The seasonality component could be damped as well, with an additional damping coefficient, but that will not be covered explicitly in this tutorial.
+
+## Model Selection and Error Calculations
+
+As a model that relies on smoothing parameters, exponential forecasting may rely heavily on the selection of these parameters in certain cases. The criteria for selecting these parameters often relies on how well the "fitted" values calculated during the process match up with the actual observations. To measure this difference, we must have a robust method for calculating errors and deciding which smoothing parameters to use based on those errors.
+
+One way to select a model is to minimize the sum of squared errors (SSE). For simple exponential smoothing, Holt's Method, and Holt's Seasonal Method, you can calculate two different types of errors: additive and multiplicative. All errors are normally and identically distributed (NID) with mean = 0 and variance = $\sigma^2$.
+
+
+**Simple Exponential Smoothing (Additive):** &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;   $\epsilon_{t} = y_{t} - l_{t-1}$
+
+**Simple Exponential Smoothing (Multiplicative):** &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;   $\epsilon_{t} = \dfrac{y_{t} - l_{t-1}}{l_{t-1}}$
+
+**Holt's Method (Additive):** &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;    $\epsilon_{t} = y_{t} - (l_{t-1} + b_{t-1})$
+
+**Holt's Method (Multiplicative):** &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;    $\epsilon_{t} = \dfrac{y_{t} - (l_{t-1} + b_{t-1})}{l_{t-1} + b_{t-1}}$
+
+**Holt-Winters Seasonal Method (Additive):** &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;   $\epsilon_{t} = y_{t} - (l_{t-1} + b_{t-1})s_{t-m}$
+
+**Holt-Winters Seasonal Method (Multiplicative):** &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;   $\epsilon_{t} = \dfrac{y_{t} - (l_{t-1} + b_{t-1})s_{t-m}}{(l_{t-1} + b_{t-1})s_{t-m}}$
+
+We will calculate the additive and multiplicative errors for simple exponential smoothing, Holt's Method, and Holt-Winters Seasonal Method, and compare their distributions to check model assumptions and possibly provide insight into model preferences.
+
+```{r}
+# calculate additive and multiplicative errors for SES
+Pass.1949$et.A <- rep(NA,nrow(Pass.1949))
+Pass.1949$et.M <- rep(NA,nrow(Pass.1949))
+for (i in 2:nrow(Pass.1949)) {
+  Pass.1949$et.A[i] <- Pass.1949$nPass[i] - Pass.1949$lt[i-1]
+  Pass.1949$et.M[i] <- (Pass.1949$nPass[i] - Pass.1949$lt[i-1])/Pass.1949$lt[i-1]
+}
+
+# calculate additive and multiplicative errors for Holt's Method
+yearly$et.A <- rep(NA,nrow(yearly))
+yearly$et.M <- rep(NA,nrow(yearly))
+for (i in 2:nrow(yearly)) {
+  yearly$et.A[i] <- yearly$nPass[i] - (yearly$lt[i-1] + yearly$bt[i-1])
+  yearly$et.M[i] <- (yearly$nPass[i] - (yearly$lt[i-1] + yearly$bt[i-1]))/(yearly$lt[i-1] + yearly$bt[i-1])
+}
+
+# calculate additive and multiplicative errors for Holt-Winters Seasonal Method
+Add$et.A <- rep(NA,nrow(Add))
+Add$et.M <- rep(NA,nrow(Add))
+Mult$et.A <- rep(NA,nrow(Mult))
+Mult$et.M <- rep(NA,nrow(Mult))
+for (i in 13:nrow(Add[Add$Type == "Observation",])) {
+  Add$et.A[i] <- Add$nPass[i] - (Add$lt[i-1] + Add$bt[i-1] + Add$st[i-m])
+  Add$et.M[i] <- (Add$nPass[i] - (Add$lt[i-1] + Add$bt[i-1])*Add$st[i-m])/((Add$lt[i-1] + Add$bt[i-1])*Add$st[i-m])
+  Mult$et.A[i] <- Mult$nPass[i] - (Mult$lt[i-1] + Mult$bt[i-1] + Mult$st[i-m])
+  Mult$et.M[i] <- (Mult$nPass[i] - (Mult$lt[i-1] + Mult$bt[i-1])*Mult$st[i-m])/((Mult$lt[i-1] + Mult$bt[i-1])*Mult$st[i-m])
+}
+```
+
+If the assumptions for each method hold true, the errors for will be normally distributed with mean 0. To check the validity of the assumptions of the model, we will compare the additive and multiplicative errors for the Multiplicative Holt-Winters Seasonal Method as an example.
+
+```{r warning=FALSE, fig.align="center"}
+# construct residual plots
+AddE <- ggplot(Mult, aes(x=et.A)) + geom_histogram(aes(y = ..density..), bins = 10) + xlab("Additive Errors") + ylab("")
+MultE <- ggplot(Mult, aes(x=et.M)) + geom_histogram(aes(y = ..density..), bins = 10) + xlab("Multiplicative Errors") + ylab("")
+
+# display residual plots
+grid.arrange(nrow = 1, AddE, MultE)
+```
+
+As we might expect, the assumptions appear to hold better for the multiplicative errors, as this is a multiplicative method. The additive errors appear to be skewed right, which indicates that a multiplicative-based error model is more appropriate for the collected data.
+
+### Using the fpp2 package
+
+Another way to perform model selection is to maximize the likelihood. The ``r "ets()"`` command uses AIC and BIC to automatically determine which method is optimal for the given data set. This command also optimizes smoothing parameters and allows for many other parameters to be specified in the function. In the command below, we restrict nothing except that the smoothing parameters be between 0 and 1 (``r "restrict = TRUE"``).
+
+```{r}
+# fit the optimized method
+fit <- ets(AirPassengers, model = "ZZZ", damped = NULL, alpha = NULL, beta = NULL, gamma = NULL, phi = NULL, lambda = NULL, biasadj = FALSE, additive.only = FALSE, restrict = TRUE, allow.multiplicative.trend = FALSE)
+
+# summarize the model selected, including smoothing parameters, AIC and BIC, and the model selected
+summary(fit)
+```
+
+The summary provides a great deal of information about which model was fit and how well it fits, but the most important result shown in this output is the first line, which indicates which model was used. For this data, the method that produces the maximum likelihood is an **(M,Ad,M)** model, which means that the errors are multiplicative, the trend is damped additive, and the seasonal trend is multiplicative. The entire set of possible models and shorthand notation for each one can be found at https://www.otexts.org/fpp2/sec-7-6-Taxonomy.html.
+
+The Damped Multiplicative Holt-Winter's Seasonal Method is the preferred method according to the software. To decompose the model, we can use the ``r "autoplot()"`` command. This decomposition shows the original observations, how the average moves as time increases, how the slope changes as time increases, and a breakdown of the seasonality component as time increases:
+
+```{r fig.align="center"}
+# decompose the optimized model
+autoplot(fit)
+```
+
+
+## Prediction Intervals
+
+If you are using software, prediction intervals can be constructed using simulated draws from the assumed distribution. These intervals cannot be constructed by hand using the methods that have been laid out in this tutorial. For each model, additive errors and multiplicative errors will produce different prediction intervals for given collected data and point estimates.
+
+### Using the fpp2 package
+
+To construct these simulated intervals, we use the ``r "fpp2"`` package, by piping our fitted *ets* model through the number of months into the future we wish to predict (48 in this case), followed by the plot commands.
+
+```{r fig.align="center"}
+fit %>% forecast(h=48) %>%
+  autoplot() + 
+  ylab("International passengers by month (thousands)")
+```
+
+As expected, the prediction intervals increase greatly in width the further into the future we try to predict. You may also notice the damped additive trend structure.
