@@ -1,6 +1,8 @@
 ---
 title: "Benchmark Methods & Forecast Accuracy"
-output: html_document
+output:
+  pdf_document: default
+  html_document: default
 ---
 
 ```{r setup, include=FALSE}
@@ -17,7 +19,8 @@ This tutorial serves as an introduction to basic benchmarking approaches for tim
 1. [Replication requirements](#replication): What you'll need to reproduce the analysis.
 2. [Naive Forecasting Methods](#naive): A simple but useful benchmark approach.
 3. [Fitted Values and Residuals](#resids): Always check the residuals.
-4. [Training and Test Sets](#training):
+4. [Training and Test Sets](#training): How to partition time series data.
+5. [Evaluating forecast Accuracy](#accuracy): How to evaluate accuracy of non-seasonal and non-season forecast methods.
 7. [Exercises](#exercises): Practice what you've learned.
 
 <br>
@@ -34,7 +37,11 @@ library(fpp2)
 
 ## Naive Forecasting Methods {#naive}
 
-The very simplest forecasting method is to use the last observed value. Sometimes, this is the best that can be done for many time series including most stock price data (for reasons illustrated in the [previous tutorial's exercise](ts_exploration#exercises)). This is called a naive forecast and is implemented with the `naive` function. Even if it is not a good forecasting method, it provides a useful benchmark for other forecasting methods.  Here, we use `naive` to forecast the next 10 values.
+Although it is tempting to apply "sophisticated" forecasting methods, one must remember to consider *naive forecasts*.  A naive forecast is simply the last observed value in the series. In other words, at time *t*, the *k*-step-ahead naive forecast is given by
+
+$$F_{t+k} = y_t \tag{1}$$
+
+Sometimes, this is the best that can be done for many time series including most stock price data (for reasons illustrated in the [previous tutorial's exercise](ts_exploration#exercises)). Even if it is not a good forecasting method, it provides a useful benchmark for other forecasting methods.  Here, we use `naive` to forecast the next 10 values.
 
 The resulting output is an object of class `forecast`. This is the core class of objects in the forecast package, and there are many functions for dealing with them.  We can print off the model summary with `summary`, which provides us with the residual standard deviation, some error measures (which we will cover later), and the actual forecasts.   
 
@@ -45,7 +52,7 @@ summary(fc_goog)
 
 You will notice the forecast output provides a point forecast (the last observed value in the `goog` data set) and prediction confidence levels at the 80% and 95% level. A prediction interval gives an interval within which we expect $y_i$ to lie with a specified probability. For example, assuming the forecast errors are uncorrelated and normally distributed, then a simple 95% prediction interval for the next observation in a time series is
 
-$$\hat y_t \pm 1.96 \hat{\sigma} \tag{1}$$
+$$\hat y_t \pm 1.96 \hat{\sigma} \tag{2}$$
 
 where $\hat{\sigma}$^ is an estimate of the standard deviation of the forecast distribution. In forecasting, it is common to calculate 80% intervals and 95% intervals, although any percentage may be used.
 
@@ -70,9 +77,11 @@ fc_goog <- naive(goog, 25)
 autoplot(fc_goog)
 ```
 
-For seasonal data, a related idea is to use the corresponding season from the last year of data. For example, if you want to forecast the sales volume for next March, you would use the sales volume from the previous March. This is implemented in the `snaive` function, meaning, *seasonal naive.*
+For seasonal data, a related idea is to use the corresponding season from the last year of data. For example, if you want to forecast the sales volume for next March, you would use the sales volume from the previous March. For a series with *M* seasons, we can write this as
 
-Here I use `snaive` to forecast the next 16 values for the `ausbeer` series.  Here we see that the 4th quarter for each future year is 488 which is the last observed 4th quarter value in 2009.
+$$ F_{t+k} =  y_{t-M+k} \tag{3}$$
+
+This is implemented in the `snaive` function, meaning, *seasonal naive.*  Here I use `snaive` to forecast the next 16 values for the `ausbeer` series.  Here we see that the 4th quarter for each future year is 488 which is the last observed 4th quarter value in 2009.
 
 ```{r}
 fc_beer <- snaive(ausbeer, 16)
@@ -115,6 +124,57 @@ checkresiduals(fc_beer)
 
 ## Training & Test Sets {training}
 
-A  training set is a data set that is used to discover possible relationships. A test set is a data set that is used to verify the strength of these potential relationships. When you separate a data set into these parts, you generally allocate more of the data for training, and less for testing.
+A  training set is a data set that is used to discover possible relationships. A test set is a data set that is used to verify the strength of these potential relationships. When you separate a data set into these parts, you generally allocate more of the data for training, and less for testing.  There is one important difference between data partitioning in cross-sectional and time series data.  In cross-sectional data the partitioning is usually done randomly, with a random set of observations designated as training data and the remainder as test data.  However, in time series, a random partition creates two problems:
 
-One function that can be used to create training and test sets is `subset.ts()`, which returns a subset of a time series where the start and end of the subset are specified using index values.
+1. It does not mimic the temporal uncertainty where we use the past and present to forecast the future.
+2. It creates two time series with "holes", whereas many standard forecasting methods cannot handle time series with missing values.
+
+Therefore, time series partitioning into training and test sets is done by taking a training partition from earlier observations and then using a later partition for the test set.
+
+```{r partitioning, fig.align='center', fig.width=7, fig.height=4, echo=FALSE}
+autoplot(goog) +
+  geom_vline(xintercept = 800, linetype = "dashed") +
+  geom_vline(xintercept = 1000, linetype = "dashed") +
+  scale_x_continuous(limits = c(0, 1250)) +
+  geom_segment(aes(x = 450, xend = 50, y = 875, yend = 875), arrow = arrow(length = unit(0.2, "cm"))) +
+  geom_segment(aes(x = 450, xend = 700, y = 875, yend = 875), arrow = arrow(length = unit(0.2, "cm"))) +
+  annotate("text", x = 375, y = 900, label = "Train") +
+  geom_segment(aes(x = 900, xend = 825, y = 875, yend = 875), arrow = arrow(length = unit(0.2, "cm"))) +
+  geom_segment(aes(x = 900, xend = 975, y = 875, yend = 875), arrow = arrow(length = unit(0.2, "cm"))) +
+  annotate("text", x = 900, y = 900, label = "Test") +
+  geom_segment(aes(x = 1100, xend = 1025, y = 875, yend = 875), arrow = arrow(length = unit(0.2, "cm"))) +
+  geom_segment(aes(x = 1100, xend = 1225, y = 875, yend = 875), arrow = arrow(length = unit(0.2, "cm"))) +
+  annotate("text", x = 1125, y = 900, label = "Future")
+```
+
+
+One function that can be used to create training and test sets is `subset.ts()`, which returns a subset of a time series where the start and end of the subset are specified using index values.  The `gold` time series comprises daily gold prices over 1108 trading days. Let's use the first 1000 days as a training set.  We can also create a test data set of the remaining data.
+
+```{r}
+train <- subset.ts(gold, end = 1000)
+test <- subset.ts(gold, start = 1001, end = length(gold))
+```
+
+<br>
+
+## Evaluating Forecast Accuracy {#accuracy}
+
+For evaluating predictive performance, several measures are commonly used to assess the predictive accuracy of a forecasting method.  In all cases, *the measures are based on the test data set*, which serves as a more objective basis than the training period to assess predictive accuracy.  Given a forecast and it's given errors ($e_t$), the commonly used accuracy measures are listed below:
+
+```{r, out.width = "600px", fig.align='center', echo=FALSE, fig.cap="Forecast Accuracy Measures"}
+knitr::include_graphics("images/accuracy.png")
+```
+
+Note that each measure has its strengths and weaknesses.  For example, if you want to compare forecast accuracy between two series on very different scales you can't compare the MAE or MSE for these forecast as they measures depend on the scale of the time series data. MAPE is often better for comparisons but only if our data are all positive and have no zeros or small values.  It also assumes a natural zero so it can't be used for temperature forecasts as these are based on arbitrary zero scales. MASE is similar to MAE but is scaled so that it can be compared across different data series.  You can read more about each of these measures [here](https://www.otexts.org/fpp/2/5); however, for now just keep in mind that for all these measures a <u>smaller value</u> signifies a <u>better forecast</u>.
+
+We can compute all of these measures by using the `accuracy` function. The accuracy measures provided include *root mean squared error* (RMSE) which is the square root of the mean squared error (MSE). Minimizing RMSE, which corresponds with increasing accuracy, is the same as minimizing MSE.  In addition, other accuracy measures not illustrated above are also provided (i.e. ACF1, Theil's U).  The output of `accuracy` allows us to compare these accuracy measures for the residuals of the training data set against the forecast errors of the test data.  However, our main concern is how well different forecasting methods improve the predictive accuracy on the test data. 
+
+Using the training data we created from the `gold` 
+
+```{r}
+
+```
+
+
+
+
