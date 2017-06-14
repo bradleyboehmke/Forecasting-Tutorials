@@ -20,7 +20,8 @@ This tutorial serves as an introduction to basic benchmarking approaches for tim
 2. [Naive Forecasting Methods](#naive): A simple but useful benchmark approach.
 3. [Fitted Values and Residuals](#resids): Always check the residuals.
 4. [Training and Test Sets](#training): How to partition time series data.
-5. [Evaluating forecast Accuracy](#accuracy): How to evaluate accuracy of non-seasonal and non-season forecast methods.
+5. [Evaluating Forecast Accuracy](#accuracy): How to evaluate accuracy of non-seasonal and non-season forecast methods.
+6. [Time Series Cross-validation](#cross): A more sophisticated approach for evaluating predictive accuracy.
 7. [Exercises](#exercises): Practice what you've learned.
 
 <br>
@@ -155,6 +156,19 @@ train <- subset.ts(gold, end = 1000)
 test <- subset.ts(gold, start = 1001, end = length(gold))
 ```
 
+A similar approach can be used for data where we want to maintain season features.  For example, if we use `subset.ts` to take the first 1,000 observations this may include half of a year in the training data and the other half in the test data.  Rather, for forecasting methods that include seasonal features (i.e. `snaive`), we prefer to not split a full cycle of seasons (i.e. year, month, week).  We can use the `window` function to do this.  For example, the `ausbeer` data set has quarterly data from 1956-2010.  Here, we take data from 1956 through the 4th quarter of 1995 to be a `train`ing data set.
+
+```{r}
+train2 <- window(ausbeer, end = c(1995, 4))
+```
+
+The `window` function becomes particularly useful when we want to take data from a defined period.  For example, if we decide that data from 1956-1969 is not appropriate due to regulatory changes then we can create a training data set from the 1st qtr of 1970 through the 4th qtr of 1995.
+
+```{r}
+train3 <- window(ausbeer, start = c(1970, 1), end = c(1995, 4))
+```
+
+
 <br>
 
 ## Evaluating Forecast Accuracy {#accuracy}
@@ -167,14 +181,59 @@ knitr::include_graphics("images/accuracy.png")
 
 Note that each measure has its strengths and weaknesses.  For example, if you want to compare forecast accuracy between two series on very different scales you can't compare the MAE or MSE for these forecast as they measures depend on the scale of the time series data. MAPE is often better for comparisons but only if our data are all positive and have no zeros or small values.  It also assumes a natural zero so it can't be used for temperature forecasts as these are based on arbitrary zero scales. MASE is similar to MAE but is scaled so that it can be compared across different data series.  You can read more about each of these measures [here](https://www.otexts.org/fpp/2/5); however, for now just keep in mind that for all these measures a <u>smaller value</u> signifies a <u>better forecast</u>.
 
+### Evaluating forecast accuracy of *non-seasonal* methods
+
 We can compute all of these measures by using the `accuracy` function. The accuracy measures provided include *root mean squared error* (RMSE) which is the square root of the mean squared error (MSE). Minimizing RMSE, which corresponds with increasing accuracy, is the same as minimizing MSE.  In addition, other accuracy measures not illustrated above are also provided (i.e. ACF1, Theil's U).  The output of `accuracy` allows us to compare these accuracy measures for the residuals of the training data set against the forecast errors of the test data.  However, our main concern is how well different forecasting methods improve the predictive accuracy on the test data. 
 
-Using the training data we created from the `gold` 
+Using the training data we created from the `gold` data set (`train`), let's create two different forecasts:
+
+1. A `naive` forecast and
+2. a forecast equal to the mean of all observations
+
+Here, I use `h = 108` to predict for the next 108 days (note that the `gold` data set has 1108 observations, the `train`ing data set has 1000, so we want to predict the next 108 observations and compare that to the test data.).
 
 ```{r}
+# create training data
+train <- subset.ts(gold, end = 1000)
 
+# Compute naive forecasts and save to naive_fc
+naive_fc <- naive(train, h = 108)
+
+# Compute mean forecasts and save to mean_fc
+mean_fc <- meanf(train, h = 108)
+
+# Use accuracy() to compute forecast accuracy
+accuracy(naive_fc, gold)
+accuracy(mean_fc, gold)
 ```
 
+What `accuracy` is doing is taking the model output from the training data (`naive_fc` & `mean_fc`) and applying the 108 forecasted values to those values in `gold` that are not included in the model (aka test data). This means we do not need to directly feed it a test data set.
 
+If we compare the test set accuracy measures for both models we see that the naive approach has lower scores across all measures indicating *better* forecasting accuracy.
 
+### Evaluating forecast accuracy of *seasonal* methods
+
+We can use a similar approach to evaluate the accuracy of seasonal forecasting models.  The primary difference is we want to use the `window` function for creating our `train`ing data so that we appropriately capture seasonal cycles. Here I illustrate with the `ausbeer` data set.  Here we see the snaive mode produces lower scores across all measures indicating *better* forecasting accuracy.
+
+```{r}
+# create training data
+train2 <- window(ausbeer, end = c(1995, 4))
+
+# create specific test data of interest
+test <- window(ausbeer, start = c(1996, 1), end = c(2004, 4))
+
+# Compute snaive forecasts and save to snaive_fc
+snaive_fc <- snaive(train2, h = length(test))
+
+# Compute mean forecasts and save to mean_fc
+mean_fc <- meanf(train2, h = length(test))
+
+# Use accuracy() to compute forecast accuracy
+accuracy(snaive_fc, test)
+accuracy(mean_fc, test)
+```
+
+<br>
+
+## Time Series Cross-validation {#cross}
 
