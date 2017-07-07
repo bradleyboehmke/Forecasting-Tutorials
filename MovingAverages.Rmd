@@ -5,21 +5,19 @@ output: html_document
 
 Moving averages are smoothing methods that do exactly what their name implies. The user must decide how many points to include in the moving average, which presents a trade-off between capturing the shape of the data while avoiding pitfalls such as modeling the noise. The concept of moving averages can be extended to perform forecasting, that application will not be discussed in this tutorial.
 
-###tl;dr
+## tl;dr
 
-1. [Replication Requirements](#replication-requirements): What you'll need to replicate the analysis in this tutorial
-
+1. [Replication Requirements](#replication): What you'll need to replicate the analysis in this tutorial
 2. [Preparing Our Data](#preparing-our-data): Cleaning up the data to make it easy to work with
-
 3. [Simple Moving Averages](#simple-moving-averages): Technique for calculating and displaying a simple moving average
-
 4. [Moving Averages of Moving Averages](#moving-averages-of-moving-averages): Using the concept of simple moving averages to perform multi-step smoothing
-
 5. [Weighted Moving Averages](#weighted-moving-averages): Smoothing by use of weights specifically chosen for their mathematical properties
 
-###Replication Requirements
+<br>
 
-There are four R packages outside of the base set of functions that will be used in the tutorial. The first two, ``tidyverse`` and ``gridExtra``, work together to create customizable and easily interpretable visualizations of the data. The ``lubridate`` package allows the user to manipulate dates, and the ``fpp2`` package allows for many of the processes described to be executed with fewer commands.
+## Replication Requirements {#replication}
+
+There are four R packages outside of the base set of functions that will be used in the tutorial. The first two, `tidyverse` and `gridExtra`, work together to create customizable and easily interpretable visualizations of the data. The `lubridate` package allows the user to manipulate dates, and the `fpp2` package allows for many of the processes described to be executed with fewer commands.
 
 ```{r message=FALSE}
 library(tidyverse)      # data manipulation and visualization
@@ -28,7 +26,7 @@ library(lubridate)      # easily work with dates and times
 library(fpp2)           # working with time series data
 ```
 
-There are two built-in R data sets that will be used for examples in this tutorial. ``elecsales`` is a time series of annual electricity sales in South Australia from 1989 to 2008 in GigaWatt hours (GWh). The second data set, ``AirPassengers`` is a time series that tracks the number of international airline passengers (in thousands) by month from 1949 to 1960. Before performing analysis, we must do some preliminary cleaning of the two data sets.
+There are two built-in R data sets that will be used for examples in this tutorial. `elecsales` is a time series of annual electricity sales in South Australia from 1989 to 2008 in GigaWatt hours (GWh). The second data set, `AirPassengers` is a time series that tracks the number of international airline passengers (in thousands) by month from 1949 to 1960. Before performing analysis, we must do some preliminary cleaning of the two data sets.
 
 ```{r}
 # first data set
@@ -40,40 +38,9 @@ data("AirPassengers")
 Passengers <- data.frame(AirPassengers)
 ```
 
-###Preparing Our Data
+<br>
 
-The ``elecsales`` data does not require all that much cleaning. We need to adjust the column name of the sales data and add a column for the year. We then convert the sales column from a time series (`ts`) object to a vector of double-precision numbers in the data frame.
-
-```{r}
-#-----------------------------PREPARE FIRST DATA SET---------------------------
-# rename data frame column and add years
-colnames(Elec) <- "GWh"
-Elec$year <- 1989:2008
-
-# convert ts object to numeric
-Elec$GWh <- as.double(Elec$GWh)
-```
-
-The ``AirPassengers`` data requires more work, as this data set is in monthly, not yearly, increments. After renaming the column that tallies the number of passengers, we convert it from a `ts` to a `double`. Next, we add a date to each observation. Dates in R are required to be in `YYYY-MM-DD` format, so we assign each observation to be the first day of the given month.
-
-```{r}
-#----------------------------PREPARE SECOND DATA SET---------------------------
-# add labels to observations
-colnames(Passengers) <- "nPass"
-
-# convert number of passengers from time series object to double precision numbers
-Passengers$nPass <- as.double(Passengers$nPass)
-
-# add date to each observation
-Passengers$Month <- rep(as.Date("1949-01-01"),nrow(Passengers))
-for (i in 2:nrow(Passengers)) {
-  month(Passengers$Month[i]) <- month(Passengers$Month[i-1]) + 1
-  year(Passengers$Month[i]) <- 1949 + floor((i-1)/12)
-}
-```
-
-
-###Simple Moving Averages
+## Simple Moving Averages
 
 The most straightforward method is called a simple moving average. For this method, we choose a number of nearby points and average them to estimate the trend. When calculating a simple moving average, it is beneficial to use an odd number of points so that the calculation is symmetric. For example, to calculate a 5 point moving average, the formula is:
 
