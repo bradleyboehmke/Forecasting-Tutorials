@@ -3,15 +3,14 @@ title: "Moving Averages"
 output: html_document
 ---
 
-Moving averages are smoothing methods that do exactly what their name implies. The user must decide how many points to include in the moving average, which presents a trade-off between capturing the shape of the data while avoiding pitfalls such as modeling the noise. The concept of moving averages can be extended to perform forecasting, that application will not be discussed in this tutorial.
+Smoothing methods are a family of forecasting methods that average values over multiple periods in order to reduce the noise and uncover patterns in the data.  Moving averages are one such smoothing method.  Moving averages is a smoothing approach that averages values from a window of consecutive time periods, thereby generating a series of averages. The moving average approaches primarily differ based on the number of values averaged, how the average is computed, and how many times averaging is performed.
 
 ## tl;dr
 
 1. [Replication Requirements](#replication): What you'll need to replicate the analysis in this tutorial
-2. [Preparing Our Data](#preparing-our-data): Cleaning up the data to make it easy to work with
-3. [Simple Moving Averages](#simple-moving-averages): Technique for calculating and displaying a simple moving average
-4. [Moving Averages of Moving Averages](#moving-averages-of-moving-averages): Using the concept of simple moving averages to perform multi-step smoothing
-5. [Weighted Moving Averages](#weighted-moving-averages): Smoothing by use of weights specifically chosen for their mathematical properties
+2. [Centered Moving Averages](#centered-moving-averages): Technique for calculating and displaying a simple moving average
+3. [Moving Averages of Moving Averages](#moving-averages-of-moving-averages): Using the concept of simple moving averages to perform multi-step smoothing
+4. [Weighted Moving Averages](#weighted-moving-averages): Smoothing by use of weights specifically chosen for their mathematical properties
 
 <br>
 
@@ -24,14 +23,15 @@ library(tidyverse)      # data manipulation and visualization
 library(gridExtra)      # arrange figures and plots
 library(lubridate)      # easily work with dates and times
 library(fpp2)           # working with time series data
+library(zoo)            # working with time series data
 ```
 
 There are two built-in R data sets that will be used for examples in this tutorial. `elecsales` is a time series of annual electricity sales in South Australia from 1989 to 2008 in GigaWatt hours (GWh). The second data set, `AirPassengers` is a time series that tracks the number of international airline passengers (in thousands) by month from 1949 to 1960. Before performing analysis, we must do some preliminary cleaning of the two data sets.
 
 ```{r}
-# first data set
+# first data set - convert from time series object to data frame
 data("elecsales")
-Elec <- data.frame(elecsales)
+Elec <- data.frame(year = time(elecsales), sales = elecsales)
 
 # second data set
 data("AirPassengers")
@@ -40,7 +40,7 @@ Passengers <- data.frame(AirPassengers)
 
 <br>
 
-## Simple Moving Averages
+## Centered Moving Averages {#centered-moving-averages}
 
 The most straightforward method is called a simple moving average. For this method, we choose a number of nearby points and average them to estimate the trend. When calculating a simple moving average, it is beneficial to use an odd number of points so that the calculation is symmetric. For example, to calculate a 5 point moving average, the formula is:
 
@@ -48,74 +48,101 @@ $$
 \hat{y_t} = \dfrac{y_{t-2} + y_{t-1} + y_{t} + y_{t+1} + y_{t+2}}{5}
 $$
 
-where *t* is the time step that you are smoothing at and 5 is the number of points being used to calculate the average (which moving forward will be denoted $m$). A 5-point moving average uses time steps inside of $t \pm 2$, so we can figure out how many points to include in the calculation by calculating $k = (m-1)/2$. As an example, we will analyze the differences between several choices of $m$, and initialize new columns in our data frame to store these moving averages.
+where *t* is the time step that you are smoothing at and 5 is the number of points being used to calculate the average (which moving forward will be denoted as $k$). To compute moving averages on our data we can leverage the `rollmean` function from the `zoo` package.  Here, we focus on the personal savings rate (`psavert`) variable in the `economics` data frame.  Using `mutate` and `rollmean`, I compute the 3, 5, and 7 year moving average values and add this data back to the data frame.  Note that we need to explicitly state to fill any years that cannot be computed (due to lack of data) with NA.
 
 ```{r}
-# number of points in average (m) and number of points on each side of t (k)
-m <- c(3,5,7,9)
-k <- (m-1)/2
+savings <- economics %>%
+  select(date, srate = psavert) %>%
+  mutate(srate_ma1 = rollmean(srate, k = 13, fill = NA),
+         srate_ma2 = rollmean(srate, k = 25, fill = NA),
+         srate_ma3 = rollmean(srate, k = 37, fill = NA),
+         srate_ma5 = rollmean(srate, k = 61, fill = NA),
+         srate_ma10 = rollmean(srate, k = 121, fill = NA))
 
-# initialize moving averages
-Elec$ma3 <- rep(NA,nrow(Elec))
-Elec$ma5 <- rep(NA,nrow(Elec))
-Elec$ma7 <- rep(NA,nrow(Elec))
-Elec$ma9 <- rep(NA,nrow(Elec))
+savings
 ```
 
-We have chosen the following values for $m$: `r m`. A set of for loops will perform all four moving average calculations at once. Notice that each moving average begins at a different point, depending on how many points are being used. For example, for a 9-MA, you need to be at least 5 points into the data set to calculate an average, so the first four entries will be `r NA`s.
+Now we can go ahead and plot these values and compare the actual data to the different moving average smoothers. 
 
 ```{r}
-# calculate moving averages
-for (i in k) {
-  for (j in (i+1):(nrow(Elec)-i)) {
-    if (i == 1) {Elec$ma3[j] <- mean(Elec$GWh[(j-i):(j+i)])}
-    if (i == 2) {Elec$ma5[j] <- mean(Elec$GWh[(j-i):(j+i)])}
-    if (i == 3) {Elec$ma7[j] <- mean(Elec$GWh[(j-i):(j+i)])}
-    if (i == 4) {Elec$ma9[j] <- mean(Elec$GWh[(j-i):(j+i)])}
-  }
-}
-
-# construct plot objects
-MovAvg3 <- ggplot() + geom_point(data = Elec, aes(x = year, y = GWh), color = "black") +
-  geom_line(data = Elec, aes(x = year, y = ma3), color = "red") + ggtitle("3-MA") +
-  theme(plot.title = element_text(hjust = 0.5))
+savings %>%
+  gather(metric, value, srate:srate_ma10) %>%
+  ggplot(aes(date, value, color = metric)) +
+  geom_line()
 ```
 
-```{r echo=FALSE}
-MovAvg5 <- ggplot() + geom_point(data = Elec, aes(x = year, y = GWh), color = "black") +
-  geom_line(data = Elec, aes(x = year, y = ma5), color = "red") + ggtitle("5-MA") +
-  theme(plot.title = element_text(hjust = 0.5))
-MovAvg7 <- ggplot() + geom_point(data = Elec, aes(x = year, y = GWh), color = "black") +
-  geom_line(data = Elec, aes(x = year, y = ma7), color = "red") + ggtitle("7-MA") +
-  theme(plot.title = element_text(hjust = 0.5))
-MovAvg9 <- ggplot() + geom_point(data = Elec, aes(x = year, y = GWh), color = "black") +
-  geom_line(data = Elec, aes(x = year, y = ma9), color = "red") + ggtitle("9-MA") +
-  theme(plot.title = element_text(hjust = 0.5))
+
+You may notice that as the number of points used for the average increases, the curve becomes smoother and smoother. Choosing a value for $k$ is a balance between eliminating noise while still capturing the data's true structure. For this set, the 10 year moving average ($k = 121$) eliminates most of the pattern and is probably too much smoothing, while a 1 year moving average ($k = 13$) offers little more than just looking at the data itself.  We can see this by zooming into the 2000-2015 time range:
+
+```{r}
+savings %>%
+  gather(metric, value, srate:srate_ma10) %>%
+  ggplot(aes(date, value, color = metric)) +
+  geom_line() +
+  coord_cartesian(xlim = c(date("2000-01-01"), date("2015-04-01")), ylim = c(0, 11))
 ```
 
-The same `ggplot()` structure shown above was used to create plots for the other three values of $m$. We now arrange the plots and examine them side-by-side for comparison.
+To understand how these different moving averages compare we can compute the [MSE and MAPE](ts_benchmarking#accuracy).  Both of these error rates will increase as you choose a larger *k* to average over; however, your or your leadership are indifferent between a 6-9% error rate then you may want to illustrate trends with a 3 year moving average rather than a 1 year moving average.
 
-```{r message=FALSE, warning=FALSE, fig.align="center"}
-# arrange plots
-grid.arrange(nrow = 2, MovAvg3, MovAvg5, MovAvg7, MovAvg9)
+```{r}
+savings %>%
+  gather(metric, value, srate_ma1:srate_ma10) %>%
+  group_by(metric) %>%
+  summarise(MSE = mean((srate - value)^2, na.rm = TRUE),
+            MAPE = mean(abs((srate - value)/srate), na.rm = TRUE))
 ```
 
-You may notice that as the number of points used for the average increases, the curve becomes smoother and smoother. Choosing a value for $m$ is a balance between eliminating noise while still capturing the data's true structure. For this set, $m = 9$ is little more than what you would get using linear regression, while $m = 3$ offers little more than just looking at the data itself.
 
-####Using the fpp2 package
+### Using the fpp2 package
 
-A simple moving average can also be plotted by using the ``autoplot()`` contained in the ``fpp2`` package. The data is plotted in line 1 of the following code, while the moving average (calculated using the ``ma()`` function) is plotted in the second layer. These functions require a ``ts`` object as the main argument, so the original time series data is used, not the data frame we created.
+A simple moving average can also be plotted by using `autoplot()` contained in the `fpp2` package. This is helpful if your data is already in time series data object.  For example, if our savings rate data converted to a time series object as here...
+
+```{r}
+savings.ts <- economics %>%
+  select(srate = psavert) %>%
+  ts(start = c(1967, 7), frequency = 12)
+
+head(savings.ts, 30)
+```
+
+...we can plot this data with `autoplot`.  Here, the data is plotted in line 1 of the following code, while the moving average (calculated using the `ma()` function) is plotted in the second layer.
 
 ```{r warning=FALSE, fig.align="center"}
-autoplot(elecsales, series = "Data") + 
-  autolayer(ma(elecsales,5), series = "5-MA") +
-  xlab("Year") + ylab("GWh") +
-  ggtitle("Annual electricity sales: South Australia") +
-  scale_colour_manual(values = c("Data" = "grey50", "5-MA" = "red"),
-                      breaks = c("Data","5-MA"))
+autoplot(savings.ts, series = "Data") + 
+  autolayer(ma(savings.ts, 13), series = "1 yr MA") +
+  autolayer(ma(savings.ts, 61), series = "5 yr MA") +
+  autolayer(ma(savings.ts, 121), series = "10 yr MA") +
+  xlab("Date") + 
+  ylab("Savings Rate")
 ```
 
-This plot is identical to the 5-MA plot constructed above, with a few aesthetic differences such as colors and labels.
+## Trailing Moving Average for Forecasting
+
+Centered moving averages are computed by averaging across data both in the past and future of a given time point. In that sense they cannot be used for forecasting because at the time of forecasting, the future is typically unknown. Hence, for purposes of forecasting, we use *trailing* moving averages, where the window of *k* periods is placed over the most recent available *k* values of the series.  For example, if we have data up to time period *t*, we can predict the value for *t+1* by averaging over *k* periods prior to *t+1*.  If we want to use the 5 most recent time periods to predict for *t+1* then our function looks like: 
+
+$$
+\hat{y}_{t+1} = \dfrac{y_{t-4} + y_{t-3} + y_{t-2} + y_{t-1} + y_{t}}{5}
+$$
+
+So, if we wanted to predict the next month's savings rate based on the previous year's average, we can use `rollmean` with the `align = "right"` argument to compute a trailing moving average.  We can see that if we wanted to predict what the savings rate would be for 2015-05-01 based on the the last 12 months, our prediction would be 5.06%.  This is now similar to using a [naive forecast](ts_benchmarking#naive) but with an averaged value rather than the last actual value.
+
+```{r}
+savings_tma <- economics %>%
+  select(date, srate = psavert) %>%
+  mutate(srate_tma = rollmean(srate, k = 12, fill = NA, align = "right"))
+
+tail(savings_tma, 12)
+```
+
+We can visualize how the 12-month trailing moving average predicts future savings rates with the following plot.  It's easy to see that trailing moving averages have a delayed reaction to changes in patterns and trends.  
+
+```{r}
+savings_tma %>%
+  gather(metric, value, -date) %>%
+  ggplot(aes(date, value, color = metric)) +
+  geom_line()
+```
+
 
 ###Moving Averages of Moving Averages
 
