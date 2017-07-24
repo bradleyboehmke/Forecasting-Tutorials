@@ -53,10 +53,10 @@ where *t* is the time step that you are smoothing at and 5 is the number of poin
 ```{r}
 savings <- economics %>%
   select(date, srate = psavert) %>%
-  mutate(srate_ma1 = rollmean(srate, k = 13, fill = NA),
-         srate_ma2 = rollmean(srate, k = 25, fill = NA),
-         srate_ma3 = rollmean(srate, k = 37, fill = NA),
-         srate_ma5 = rollmean(srate, k = 61, fill = NA),
+  mutate(srate_ma01 = rollmean(srate, k = 13, fill = NA),
+         srate_ma02 = rollmean(srate, k = 25, fill = NA),
+         srate_ma03 = rollmean(srate, k = 37, fill = NA),
+         srate_ma05 = rollmean(srate, k = 61, fill = NA),
          srate_ma10 = rollmean(srate, k = 121, fill = NA))
 
 savings
@@ -64,7 +64,7 @@ savings
 
 Now we can go ahead and plot these values and compare the actual data to the different moving average smoothers. 
 
-```{r}
+```{r, message=FALSE, warning=FALSE}
 savings %>%
   gather(metric, value, srate:srate_ma10) %>%
   ggplot(aes(date, value, color = metric)) +
@@ -74,7 +74,7 @@ savings %>%
 
 You may notice that as the number of points used for the average increases, the curve becomes smoother and smoother. Choosing a value for $k$ is a balance between eliminating noise while still capturing the data's true structure. For this set, the 10 year moving average ($k = 121$) eliminates most of the pattern and is probably too much smoothing, while a 1 year moving average ($k = 13$) offers little more than just looking at the data itself.  We can see this by zooming into the 2000-2015 time range:
 
-```{r}
+```{r, message=FALSE, warning=FALSE}
 savings %>%
   gather(metric, value, srate:srate_ma10) %>%
   ggplot(aes(date, value, color = metric)) +
@@ -82,11 +82,11 @@ savings %>%
   coord_cartesian(xlim = c(date("2000-01-01"), date("2015-04-01")), ylim = c(0, 11))
 ```
 
-To understand how these different moving averages compare we can compute the [MSE and MAPE](ts_benchmarking#accuracy).  Both of these error rates will increase as you choose a larger *k* to average over; however, your or your leadership are indifferent between a 6-9% error rate then you may want to illustrate trends with a 3 year moving average rather than a 1 year moving average.
+To understand how these different moving averages compare we can compute the [MSE and MAPE](ts_benchmarking#accuracy).  Both of these error rates will increase as you choose a larger *k* to average over; however, if you or your leadership are indifferent between a 6-9% error rate then you may want to illustrate trends with a 3 year moving average rather than a 1 year moving average.
 
 ```{r}
 savings %>%
-  gather(metric, value, srate_ma1:srate_ma10) %>%
+  gather(metric, value, srate_ma01:srate_ma10) %>%
   group_by(metric) %>%
   summarise(MSE = mean((srate - value)^2, na.rm = TRUE),
             MAPE = mean(abs((srate - value)/srate), na.rm = TRUE))
@@ -95,7 +95,7 @@ savings %>%
 
 ### Using the fpp2 package
 
-A simple moving average can also be plotted by using `autoplot()` contained in the `fpp2` package. This is helpful if your data is already in time series data object.  For example, if our savings rate data converted to a time series object as here...
+A simple moving average can also be plotted by using `autoplot()` contained in the `fpp2` package. This is helpful if your data is already in time series data object.  For example, if our savings rate data were already converted to a time series object as here...
 
 ```{r}
 savings.ts <- economics %>%
@@ -124,7 +124,7 @@ $$
 \hat{y}_{t+1} = \dfrac{y_{t-4} + y_{t-3} + y_{t-2} + y_{t-1} + y_{t}}{5}
 $$
 
-So, if we wanted to predict the next month's savings rate based on the previous year's average, we can use `rollmean` with the `align = "right"` argument to compute a trailing moving average.  We can see that if we wanted to predict what the savings rate would be for 2015-05-01 based on the the last 12 months, our prediction would be 5.06%.  This is now similar to using a [naive forecast](ts_benchmarking#naive) but with an averaged value rather than the last actual value.
+So, if we wanted to predict the next month's savings rate based on the previous year's average, we can use `rollmean` with the `align = "right"` argument to compute a trailing moving average.  We can see that if we wanted to predict what the savings rate would be for 2015-05-01 based on the the last 12 months, our prediction would be 5.06% (the 12-month average for 2015-04-01).  This is now similar to using a [naive forecast](ts_benchmarking#naive) but with an averaged value rather than the last actual value.
 
 ```{r}
 savings_tma <- economics %>%
@@ -144,20 +144,15 @@ savings_tma %>%
 ```
 
 
-###Moving Averages of Moving Averages
+## Moving Averages of Moving Averages
 
-The concept of simple moving averages can be extended to taking moving averages of moving averages. This technique is often employed with an even number of data points so that the final product is symmetric around each point. 
+The concept of simple moving averages can be extended to taking moving averages of moving averages. This technique is often employed with an even number of data points so that the final product is symmetric around each point. For example, let's look at the built-in data set `elecsales` provided by the `fpp2` package.  For our first example we convert to a data frame.  This data frame is even numbered with 20 rows.
 
 ```{r}
-# number of points to be included in average
-m <- 4
-k <- m/2
+# convert to data frame
+elecsales.df <- data.frame(year = time(elecsales), sales = elecsales)
 
-# moving average
-Elec$ma4 <- rep(NA,nrow(Elec))
-for (i in k:(nrow(Elec)-k)) {
-  Elec$ma4[i] <- mean(Elec$GWh[(i-k+1):(i+k)])
-}
+nrow(elecsales.df)
 ```
 
 An even-numbered moving average is unbalanced, and for our purposes, the unbalancing will be in favor of more recent observations. For example, to calculate a 4-MA, the equation is as follows:
@@ -172,37 +167,55 @@ $$
 \hat{y_t} = \dfrac{1}{8}y_{t-2} + \dfrac{1}{4}y_{t-1} + \dfrac{1}{4}y_{t} + \dfrac{1}{4}y_{t+1} + \dfrac{1}{8}y_{t+2}
 $$
 
-```{r message=FALSE, warning=FALSE, fig.align="center"}
-# calculate moving average of moving average
-Elec$ma2x4 <- rep(NA,nrow(Elec))
-for (i in 2:nrow(Elec)) {
-  Elec$ma2x4[i] <- mean(Elec$ma4[(i-1):i])
-}
+This two-step process can be performed easily with the `ma` function by setting `order = 4` and `centre = TRUE`.
 
-# plot results
-ggplot() + geom_point(data = Elec, aes(x = year, y = GWh), color = "black") +
-  geom_line(data = Elec, aes(x = year, y = GWh), color = "black") +
-  geom_line(data = Elec, aes(x = year, y = ma2x4), color = "red", size = 1)
+```{r message=FALSE}
+elecsales.df %>%
+  mutate(ma4 = ma(sales, order = 4, centre = TRUE)) %>%
+  head()
 ```
 
-This 2 x 4-MA process produces the best fit yet. It massages out some of the noise while maintaining the overall trend of the data. Other combinations of moving averages are possible, such as 3 x 3-MA. To maintain symmetry, if your first moving average is an even number of points, the follow-up MA should also contain an even number. Likewise, if your first MA uses an odd number of points, the follow-up should use an odd number of points.
+To compare this moving average to a regular moving average we can plot the two outputs:
 
-####Using the fpp2 package
+```{r message=FALSE, warning=FALSE, fig.align="center"}
+# compute 2 and 2x4 moving averages
+elecsales.df %>%
+  mutate(ma2 = rollmean(sales, k = 2, fill = NA),
+         ma2x4 = ma(sales, order = 4, centre = TRUE)) %>%
+  gather(ma, value, ma2:ma2x4) %>%
+  ggplot(aes(x = year)) + 
+  geom_point(aes(y = sales)) +
+  geom_line(aes(y = value, color = ma))
+```
 
-The same ``autoplot()`` function used previously can be used for to calculate moving averages of moving averages. To perform a multi-step moving average, in the ``ma()`` function, you must choose an even number for ``order`` and set ``centre = TRUE``.
+This 2 x 4-MA process produces the best fit yet. It massages out some of the noise while maintaining the overall trend of the data. Other combinations of moving averages are possible, such as 3 x 3-MA. To maintain symmetry, if your first moving average is an even number of points, the follow-up MA should also contain an even number. Likewise, if your first MA uses an odd number of points, the follow-up should use an odd number of points.  Just keep in mind that moving averages of moving averages will lose information as you do not retain as many data points.
+
+### Using the fpp2 package
+
+If your data is already in a time series data object, then you can apply the `ma` function directly to that object with `order = 4` and `centre = TRUE`.  For example, the built-in `elecsales` data set is a time series object:
+
+```{r}
+class(elecsales)
+```
+
+We can compute the 2x4 moving average directly:
+
+```{r}
+ma(elecsales, order = 4, centre = TRUE)
+```
+
+
+And we can use `autoplot` to plot the the 2x4 moving average against the raw data:
 
 ```{r warning=FALSE, fig.align="center"}
 autoplot(elecsales, series = "Data") + 
   autolayer(ma(elecsales, order = 4, centre = TRUE), series = "2x4-MA") +
-  xlab("Year") + ylab("GWh") +
-  ggtitle("Annual electricity sales: South Australia") +
-  scale_colour_manual(values = c("Data" = "grey50", "2x4-MA" = "red"),
-                      breaks = c("Data","2x4-MA"))
+  labs(x = "Year", y = "Sales") + 
+  ggtitle("Annual electricity sales: South Australia")
 ```
 
-This plot is identical to the **2 x 4-MA** plot constructed above, with a few differences in teh plot aesthetics.
 
-###Weighted Moving Averages
+## Weighted Moving Averages
 
 A moving average of a moving average can be thought of as a symmetric MA that has different weights on each nearby observation. The most common use of a weighted moving average places weight $1/(2m)$ on the previous and following observations on the same season, while assigning weight $1/m$ on the other observations in the time period.
 
@@ -237,7 +250,7 @@ ggplot() + geom_point(data = Passengers, aes(x = Month, y = nPass), color = "bla
 
 This weighted average describes the trend in the data while eliminating the effect of seasonality on the pattern.
 
-####Using the fpp2 package
+### Using the fpp2 package
 
 The same process can be performed using the ``fpp2`` package. We set `centre = TRUE` and `order = 12` in the ``ma()`` function. Some additional plot aesthetics are adjusted as well.
 
