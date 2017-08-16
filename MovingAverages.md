@@ -35,7 +35,7 @@ $$
 \hat{y_t} = \dfrac{y_{t-2} + y_{t-1} + y_{t} + y_{t+1} + y_{t+2}}{5}
 $$
 
-where *t* is the time step that you are smoothing at and 5 is the number of points being used to calculate the average (which moving forward will be denoted as $k$). To compute moving averages on our data we can leverage the `rollmean` function from the `zoo` package.  Here, we focus on the personal savings rate (`psavert`) variable in the `economics` data frame.  Using `mutate` and `rollmean`, I compute the 3, 5, and 7 year moving average values and add this data back to the data frame.  Note that we need to explicitly state to fill any years that cannot be computed (due to lack of data) with NA.
+where *t* is the time step that you are smoothing at and 5 is the number of points being used to calculate the average (which moving forward will be denoted as $k$). To compute moving averages on our data we can leverage the `rollmean` function from the `zoo` package.  Here, we focus on the personal savings rate (`psavert`) variable in the `economics` data frame.  Using `mutate` and `rollmean`, I compute the 13, 25, ..., 121 month moving average values and add this data back to the data frame.  Note that we need to explicitly state to fill any years that cannot be computed (due to lack of data) with NA.
 
 
 ```r
@@ -48,18 +48,18 @@ savings <- economics %>%
          srate_ma10 = rollmean(srate, k = 121, fill = NA))
 
 savings
-## # A tibble: 574 × 7
+## # A tibble: 574 x 7
 ##          date srate srate_ma01 srate_ma02 srate_ma03 srate_ma05 srate_ma10
 ##        <date> <dbl>      <dbl>      <dbl>      <dbl>      <dbl>      <dbl>
-## 1  1967-07-01  12.5         NA         NA         NA         NA         NA
-## 2  1967-08-01  12.5         NA         NA         NA         NA         NA
-## 3  1967-09-01  11.7         NA         NA         NA         NA         NA
-## 4  1967-10-01  12.5         NA         NA         NA         NA         NA
-## 5  1967-11-01  12.5         NA         NA         NA         NA         NA
-## 6  1967-12-01  12.1         NA         NA         NA         NA         NA
-## 7  1968-01-01  11.7   11.97692         NA         NA         NA         NA
-## 8  1968-02-01  12.2   11.81538         NA         NA         NA         NA
-## 9  1968-03-01  11.6   11.65385         NA         NA         NA         NA
+##  1 1967-07-01  12.5         NA         NA         NA         NA         NA
+##  2 1967-08-01  12.5         NA         NA         NA         NA         NA
+##  3 1967-09-01  11.7         NA         NA         NA         NA         NA
+##  4 1967-10-01  12.5         NA         NA         NA         NA         NA
+##  5 1967-11-01  12.5         NA         NA         NA         NA         NA
+##  6 1967-12-01  12.1         NA         NA         NA         NA         NA
+##  7 1968-01-01  11.7   11.97692         NA         NA         NA         NA
+##  8 1968-02-01  12.2   11.81538         NA         NA         NA         NA
+##  9 1968-03-01  11.6   11.65385         NA         NA         NA         NA
 ## 10 1968-04-01  12.2   11.56923         NA         NA         NA         NA
 ## # ... with 564 more rows
 ```
@@ -74,7 +74,7 @@ savings %>%
   geom_line()
 ```
 
-<img src="MovingAverages_files/figure-html/unnamed-chunk-3-1.png" style="display: block; margin: auto;" />
+<img src="MovingAverages_files/figure-html/ma_plot1-1.png" style="display: block; margin: auto;" />
 
 
 You may notice that as the number of points used for the average increases, the curve becomes smoother and smoother. Choosing a value for $k$ is a balance between eliminating noise while still capturing the data's true structure. For this set, the 10 year moving average ($k = 121$) eliminates most of the pattern and is probably too much smoothing, while a 1 year moving average ($k = 13$) offers little more than just looking at the data itself.  We can see this by zooming into the 2000-2015 time range:
@@ -88,7 +88,7 @@ savings %>%
   coord_cartesian(xlim = c(date("2000-01-01"), date("2015-04-01")), ylim = c(0, 11))
 ```
 
-<img src="MovingAverages_files/figure-html/unnamed-chunk-4-1.png" style="display: block; margin: auto;" />
+<img src="MovingAverages_files/figure-html/ma_plot2-1.png" style="display: block; margin: auto;" />
 
 To understand how these different moving averages compare we can compute the [MSE and MAPE](ts_benchmarking#accuracy).  Both of these error rates will increase as you choose a larger *k* to average over; however, if you or your leadership are indifferent between a 6-9% error rate then you may want to illustrate trends with a 3 year moving average rather than a 1 year moving average.
 
@@ -99,7 +99,7 @@ savings %>%
   group_by(metric) %>%
   summarise(MSE = mean((srate - value)^2, na.rm = TRUE),
             MAPE = mean(abs((srate - value)/srate), na.rm = TRUE))
-## # A tibble: 5 × 3
+## # A tibble: 5 x 3
 ##       metric       MSE       MAPE
 ##        <chr>     <dbl>      <dbl>
 ## 1 srate_ma01 0.3906915 0.06418596
@@ -139,7 +139,7 @@ autoplot(savings.ts, series = "Data") +
   ylab("Savings Rate")
 ```
 
-<img src="MovingAverages_files/figure-html/unnamed-chunk-7-1.png" style="display: block; margin: auto;" />
+<img src="MovingAverages_files/figure-html/ma_plot3-1.png" style="display: block; margin: auto;" />
 
 ## Trailing Moving Average for Forecasting
 
@@ -158,18 +158,18 @@ savings_tma <- economics %>%
   mutate(srate_tma = rollmean(srate, k = 12, fill = NA, align = "right"))
 
 tail(savings_tma, 12)
-## # A tibble: 12 × 3
+## # A tibble: 12 x 3
 ##          date srate srate_tma
 ##        <date> <dbl>     <dbl>
-## 1  2014-05-01   5.1  4.900000
-## 2  2014-06-01   5.1  4.883333
-## 3  2014-07-01   5.1  4.883333
-## 4  2014-08-01   4.7  4.833333
-## 5  2014-09-01   4.6  4.783333
-## 6  2014-10-01   4.6  4.775000
-## 7  2014-11-01   4.5  4.791667
-## 8  2014-12-01   5.0  4.866667
-## 9  2015-01-01   5.5  4.916667
+##  1 2014-05-01   5.1  4.900000
+##  2 2014-06-01   5.1  4.883333
+##  3 2014-07-01   5.1  4.883333
+##  4 2014-08-01   4.7  4.833333
+##  5 2014-09-01   4.6  4.783333
+##  6 2014-10-01   4.6  4.775000
+##  7 2014-11-01   4.5  4.791667
+##  8 2014-12-01   5.0  4.866667
+##  9 2015-01-01   5.5  4.916667
 ## 10 2015-02-01   5.7  4.975000
 ## 11 2015-03-01   5.2  5.008333
 ## 12 2015-04-01   5.6  5.058333
@@ -185,7 +185,7 @@ savings_tma %>%
   geom_line()
 ```
 
-<img src="MovingAverages_files/figure-html/unnamed-chunk-9-1.png" style="display: block; margin: auto;" />
+<img src="MovingAverages_files/figure-html/ma_plot4-1.png" style="display: block; margin: auto;" />
 
 
 ## Moving Averages of Moving Averages
@@ -243,7 +243,7 @@ elecsales.df %>%
   geom_line(aes(y = value, color = ma))
 ```
 
-<img src="MovingAverages_files/figure-html/unnamed-chunk-12-1.png" style="display: block; margin: auto;" />
+<img src="MovingAverages_files/figure-html/ma_plot5-1.png" style="display: block; margin: auto;" />
 
 This 2 x 4-MA process produces the best fit yet. It massages out some of the noise while maintaining the overall trend of the data. Other combinations of moving averages are possible, such as 3 x 3-MA. To maintain symmetry, if your first moving average is an even number of points, the follow-up MA should also contain an even number. Likewise, if your first MA uses an odd number of points, the follow-up should use an odd number of points.  Just keep in mind that moving averages of moving averages will lose information as you do not retain as many data points.
 
@@ -282,7 +282,7 @@ autoplot(elecsales, series = "Data") +
   ggtitle("Annual electricity sales: South Australia")
 ```
 
-<img src="MovingAverages_files/figure-html/unnamed-chunk-15-1.png" style="display: block; margin: auto;" />
+<img src="MovingAverages_files/figure-html/ma_plot6-1.png" style="display: block; margin: auto;" />
 
 
 ## Weighted Moving Averages
@@ -345,7 +345,7 @@ autoplot(AirPassengers, series = "Data") +
   labs(x = NULL, y = "Passengers")
 ```
 
-<img src="MovingAverages_files/figure-html/unnamed-chunk-18-1.png" style="display: block; margin: auto;" />
+<img src="MovingAverages_files/figure-html/ma_plot7-1.png" style="display: block; margin: auto;" />
 
 You can see we've smoothed out the seasonality but have captured the overall trend.
 

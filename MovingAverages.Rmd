@@ -41,7 +41,7 @@ $$
 \hat{y_t} = \dfrac{y_{t-2} + y_{t-1} + y_{t} + y_{t+1} + y_{t+2}}{5}
 $$
 
-where *t* is the time step that you are smoothing at and 5 is the number of points being used to calculate the average (which moving forward will be denoted as $k$). To compute moving averages on our data we can leverage the `rollmean` function from the `zoo` package.  Here, we focus on the personal savings rate (`psavert`) variable in the `economics` data frame.  Using `mutate` and `rollmean`, I compute the 3, 5, and 7 year moving average values and add this data back to the data frame.  Note that we need to explicitly state to fill any years that cannot be computed (due to lack of data) with NA.
+where *t* is the time step that you are smoothing at and 5 is the number of points being used to calculate the average (which moving forward will be denoted as $k$). To compute moving averages on our data we can leverage the `rollmean` function from the `zoo` package.  Here, we focus on the personal savings rate (`psavert`) variable in the `economics` data frame.  Using `mutate` and `rollmean`, I compute the 13, 25, ..., 121 month moving average values and add this data back to the data frame.  Note that we need to explicitly state to fill any years that cannot be computed (due to lack of data) with NA.
 
 ```{r}
 savings <- economics %>%
@@ -57,7 +57,7 @@ savings
 
 Now we can go ahead and plot these values and compare the actual data to the different moving average smoothers. 
 
-```{r, message=FALSE, warning=FALSE, fig.align='center', fig.height=4, fig.width=8}
+```{r ma_plot1, message=FALSE, warning=FALSE, fig.align='center', fig.height=4, fig.width=8}
 savings %>%
   gather(metric, value, srate:srate_ma10) %>%
   ggplot(aes(date, value, color = metric)) +
@@ -67,7 +67,7 @@ savings %>%
 
 You may notice that as the number of points used for the average increases, the curve becomes smoother and smoother. Choosing a value for $k$ is a balance between eliminating noise while still capturing the data's true structure. For this set, the 10 year moving average ($k = 121$) eliminates most of the pattern and is probably too much smoothing, while a 1 year moving average ($k = 13$) offers little more than just looking at the data itself.  We can see this by zooming into the 2000-2015 time range:
 
-```{r, message=FALSE, warning=FALSE, fig.align='center', fig.height=4, fig.width=8}
+```{r ma_plot2, message=FALSE, warning=FALSE, fig.align='center', fig.height=4, fig.width=8}
 savings %>%
   gather(metric, value, srate:srate_ma10) %>%
   ggplot(aes(date, value, color = metric)) +
@@ -100,7 +100,7 @@ head(savings.ts, 30)
 
 ...we can plot this data with `autoplot`.  Here, the data is plotted in line 1 of the following code, while the moving average (calculated using the `ma()` function) is plotted in the second layer.
 
-```{r warning=FALSE, fig.align="center", fig.height=4, fig.width=8}
+```{r ma_plot3, warning=FALSE, fig.align="center", fig.height=4, fig.width=8}
 autoplot(savings.ts, series = "Data") + 
   autolayer(ma(savings.ts, 13), series = "1 yr MA") +
   autolayer(ma(savings.ts, 61), series = "5 yr MA") +
@@ -129,7 +129,7 @@ tail(savings_tma, 12)
 
 We can visualize how the 12-month trailing moving average predicts future savings rates with the following plot.  It's easy to see that trailing moving averages have a delayed reaction to changes in patterns and trends.  
 
-```{r, message=FALSE, warning=FALSE, fig.align='center', fig.height=4, fig.width=8}
+```{r ma_plot4, message=FALSE, warning=FALSE, fig.align='center', fig.height=4, fig.width=8}
 savings_tma %>%
   gather(metric, value, -date) %>%
   ggplot(aes(date, value, color = metric)) +
@@ -170,7 +170,7 @@ elecsales.df %>%
 
 To compare this moving average to a regular moving average we can plot the two outputs:
 
-```{r message=FALSE, warning=FALSE, fig.align="center", fig.height=3, fig.width=7}
+```{r ma_plot5, message=FALSE, warning=FALSE, fig.align="center", fig.height=3, fig.width=7}
 # compute 2 and 2x4 moving averages
 elecsales.df %>%
   mutate(ma2 = rollmean(sales, k = 2, fill = NA),
@@ -200,7 +200,7 @@ ma(elecsales, order = 4, centre = TRUE)
 
 And we can use `autoplot` to plot the the 2x4 moving average against the raw data:
 
-```{r warning=FALSE, fig.align="center", fig.height=4, fig.width=8}
+```{r ma_plot6, warning=FALSE, fig.align="center", fig.height=4, fig.width=8}
 autoplot(elecsales, series = "Data") + 
   autolayer(ma(elecsales, order = 4, centre = TRUE), series = "2x4-MA") +
   labs(x = "Year", y = "Sales") + 
@@ -232,7 +232,7 @@ ma(AirPassengers, order = 12, centre = TRUE)
 
 And to compare this moving average to the actual time series:
 
-```{r warning=FALSE, fig.align="center"}
+```{r ma_plot7, warning=FALSE, fig.align="center", fig.height=4, fig.width=8}
 autoplot(AirPassengers, series = "Data") + 
   autolayer(ma(AirPassengers, order = 12, centre = T), series = "2x12-MA") +
   ggtitle("Monthly Airline Passengers (1949-60)") +
