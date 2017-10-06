@@ -3,66 +3,56 @@ title: "Exponential Forecasting"
 output: html_document
 ---
 
-Forecasting involves using previously collected time series data to predict future data points. One subset of forecasting, Exponential forecasting, places greater weight on recent observations and less weight on older observations. This method lends itself nicely to making predictions in components, where one component equation estimates the level variation, another component estimates the linear trend, and if necessary, a final component estimates the seasonal structure in the the time series. The methods presented in this tutorial are applicable to a wide range of time series.
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, message = FALSE, warning = FALSE, collapse = TRUE)
+```
+
+Exponential forecasting is another smoothing method and has been around since the 1950s.  Where [niave forecasting](ts_benchmarking#naive) places 100% weight on the most recent observation and [moving averages](ts_moving_averages) place equal weight on *k* values, exponential smoothing allows for weighted averages where greater weight can be placed on recent observations and lesser weight on older observations. Exponential smoothing methods are intuitive, computationally efficient, and generally applicable to a wide range of time series. Consequently, exponentially smoothing is a great forecasting tool to have and this tutorial will walk you through the basics.
 
 ## tl;dr
 
-1. [Replication Requirements](#replication-requirements): What you'll need to reproduce the analysis in this tutorial
-2. [Simple Exponential Smoothing](#simple-exponential-smoothing): Techniques to use time series data to make a prediction one time unit into the future
-3. [Holt's Method](#holts-method): Techniques to use time series data with a trend to make future predictions
-4. [Holt-Winters Seasonal Method](#holt-winters-seasonal-method): Techniques to use time series data with a trend and seasonality to make future predictions
+1. [Replication Requirements](#replication): What you'll need to reproduce the analysis in this tutorial.
+2. [Simple Exponential Smoothing](#ses): Technique for data with no trend or seasonality.
+3. [Holt's Method](#holts-method): Technique for data with trend but no seasonality.
+4. [Holt-Winters Seasonal Method](#holt-winters-seasonal-method): Technique for data with trend *and* seasonality.
 5. [Model Selection and Error Calculations](#model-selection-and-error-calculations): Discussion of how to calculate errors in exponential forecasting
 6. [Prediction Intervals](#prediction-intervals): Using software to simulate prediction intervals for the predicted data points
 
 
-## Replication Requirements
+## Replication Requirements {#replication}
 
-This tutorial uses data from the built-in R data set ``r "AirPassengers"``. This data set lists the number of international airline passengers month-by-month from 1949 to 1960 in thousands of passengers. Throughout the tutorial, we will use several R packages in addition to the base set of functions. The ``r "tidyverse"`` package enables the user to manipulate and visualize the data more efficiently, the ``r "lubridate"`` package allows the user to easily work with dates, and the ``r "fpp2"`` package performs the exponential forecasting techniques described with fewer commands. The ``r "gridExtra"`` package allows for multiple plot objects to be neatly displayed together.
-
-```{r message=FALSE}
-library(tidyverse)      # data manipulation and visualization
-library(lubridate)      # easily work with dates and times
-library(fpp2)           # exponential forecasting procedure
-library(gridExtra)      # arrange figures and plots
-
-data("AirPassengers")
-Passengers <- data.frame(AirPassengers)
-```
-
-In order to use this data set to make interpretable predictions, we add the date to each observation. Because the data is monthly and R requires a full date, we assign the first day of each month to the corresponding observation. The new data set will have two columns: 1) a date which represents the first day of the month and 2) the number of international airline passengers during that month (in thousands).
+This tutorial uses the `forecast` and `fpp2` packages.
 
 ```{r message=FALSE}
-# add labels to observations
-colnames(Passengers) <- "nPass"
-
-# convert number of passengers from time series object to double precision numbers
-Passengers$nPass <- as.double(Passengers$nPass)
-
-# add date to each observation
-Passengers$Month <- rep(as.Date("1949-01-01"),nrow(Passengers))
-for (i in 2:nrow(Passengers)) {
-  month(Passengers$Month[i]) <- month(Passengers$Month[i-1]) + 1
-  year(Passengers$Month[i]) <- 1949 + floor((i-1)/12)
-}
+library(forecast)
+library(fpp2)          
 ```
 
-```{r echo=FALSE}
-head(Passengers,6)
+Furthermore, we'll use a couple data sets to illustrate.  The `goog` data is provided by the fpp2 package and `AirPassengers` is built into base R. Let's go ahead and set up training and validation sets:
+
+```{r}
+# create training and validation of the Google stock data
+goog.train <- window(goog, end = 900)
+goog.test <- window(goog, start = 901)
+
+# create training and validation of the AirPassengers data
+air.train <- window(AirPassengers, end = c(1959, 12))
+air.test <- window(AirPassengers, start = c(1960, 1))
 ```
 
 
 
-## Simple Exponential Smoothing
+## Simple Exponential Smoothing {#ses}
 
-In order to make predictions, we will use the data we've already collected to inform our estimate. For exponential smoothing, we weigh the recent observations more heavily than older observations. The weight of each observation is determined through the use of a *smoothing parameter*, which we will denote $\alpha$.
+The simplest of the exponentially smoothing methods is called "simple exponential smoothing" (SES).  The key point to remember is that SES is **suitable for data with no trend or seasonal pattern**. This section will illustrate why.
 
-For a data set with $T$ observations, we calculate our predicted value, $\hat{y}_{T+1}$, which will be based on $y_{1}$ through $y_{T}$ as follows:
+For exponential smoothing, we weigh the recent observations more heavily than older observations. The weight of each observation is determined through the use of a *smoothing parameter*, which we will denote $\alpha$.  For a data set with $T$ observations, we calculate our predicted value, $\hat{y}_{T+1}$, which will be based on $y_{1}$ through $y_{T}$ as follows:
 
 $$
 \hat{y}_{T+1} = \alpha{y_T} + \alpha(1-\alpha)y_{T-1} + \dots + \alpha(1-\alpha)^{T-1}y_{1}
 $$
 
-This equation is relatively straightforward to program and calculates exactly the prediction that we want. However, it will benefit us moving forward to use the component form of this model, which uses the following set of equations.
+where $0 < \alpha \leq 1$. It is also common to come to use the *component form* of this model, which uses the following set of equations.
 
 $$
 \hat{y}_{t+1} = l_{t}
@@ -72,49 +62,72 @@ $$
 l_{t} = \alpha{y_{t}} + (1 - \alpha)l_{t-1}
 $$
 
-Notice that the most weight is still placed on the most recent observation. We will use the component form because as we add to this model, it will be easier to add a component equation rather than adjust the structure of our prediction equation. As an example of simple exponential smoothing, we will look at the number of passengers for each month in 1949:
+In both equations we can see that the most weight is placed on the most recent observation. In practice, $\alpha$ equal to 0.1-0.2 tends to perform quite well but we'll demonstrate shortly how to tune this parameter.  When $\alpha$ is closer to 0 we consider this *slow learning* because the algorithm gives historical data more weight.  When $\alpha$ is closer to 1 we consider this *fast learning* because the algorithm gives more weight to the most recent observation; therefore, recent changes in the data will have a bigger impact on forecasted values. The following table illustrates how weighting changes based on the $\apha$ parameter:
 
-```{r}
-# subset data from first year in the data set
-Pass.1949 <- filter(Passengers, Month < "1950-01-01")
-Pass.1949$Type <- rep("Observation",nrow(Pass.1949))
+<div id="alpha-chart" class="section level1" style="width: 100%;">
+<table style="font-size:13px;">
+<col width="20%">
+<col width="20%">
+<col width="20%">
+<col width="20%">
+<col width="20%">
+<thead>
+<tr class="header">
+<th align="left">Observation</th>
+<th align="left">$\alpha=0.2$</th>
+<th align="left">$\alpha=0.4$</th>
+<th align="left">$\alpha=0.6$</th>
+<th align="left">$\alpha=0.8$</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<th align="left">$y_T$</th>
+<th align="left">0.2</th>
+<th align="left">0.4</th>
+<th align="left">0.6</th>
+<th align="left">0.8</th>
+</tr>
+<tr class="even">
+<th align="left">$y_{T-1}$</th>
+<th align="left">0.16</th>
+<th align="left">0.24</th>
+<th align="left">0.26</th>
+<th align="left">0.16</th>
+</tr>
+<tr class="odd">
+<th align="left">$y_T{T-2}$</th>
+<th align="left">0.128</th>
+<th align="left">0.144</th>
+<th align="left">0.096</th>
+<th align="left">0.032</th>
+</tr>
+<tr class="even">
+<th align="left">$y_T{T-3}$</th>
+<th align="left">0.1024</th>
+<th align="left">0.0864</th>
+<th align="left">0.0384</th>
+<th align="left">0.0064</th>
+</tr>
+<tr class="odd">
+<th align="left">$\vdots$</th>
+<th align="left">$\vdots$</th>
+<th align="left">$\vdots$</th>
+<th align="left">$\vdots$</th>
+<th align="left">$\vdots$</th>
+</tr>
+</tbody>
+</table>
+</div>
+
+Let's go ahead and apply SES to the Google data using the `ses` function.  We manually set the $\alpha = .2$ for our initial model and forecast forward 100 steps with $h=100$. We see that...  
+
+```{r, fig.align='center', fig.height=4, fig.width=8}
+ses.goog <- ses(goog.train, alpha = .2, h = 100)
+autoplot(ses.goog)
 ```
 
-We denote the already-observed data points as "Observations". Next, we pick a smoothing coefficient. A smoothing coefficient close to 0 will place more weight on older observations, while a smoothing coefficient close to 1 will heavily weight the most recent point in our prediction. The choice of a smoothing parameter affects our estimate, and there are methods for optimizing this choice, but for now, we'll choose an estimate that doesn't weight recent observations much more than older observations, $\alpha$ = 0.2.
 
-```{r}
-# smoothing coefficient
-alpha <- 0.2
-
-# add placeholder to data frame for predicted point
-SES.Pass <- data.frame(
-  nPass = 0,
-  Month = Pass.1949$Month[nrow(Pass.1949)]+31,     # add 31 days to the last date
-  Type = "Prediction"
-)
-Pass.1949 <- rbind(Pass.1949, SES.Pass)
-
-# add level component column
-Pass.1949$lt <- rep(NA, nrow(Pass.1949))
-```
-
-Once the placeholder for the predicted point has been added to the data frame, we can calculate the value of our prediction using the component formula and plot the results:
-
-```{r fig.align="center"}
-# initialize level component
-Pass.1949$lt[1] <- Pass.1949$nPass[1]
-
-# calculate fitted values
-for (j in 2:12) {
-  Pass.1949$lt[j] <- alpha*Pass.1949$nPass[j] + (1-alpha)*Pass.1949$lt[j-1]
-}
-
-# calculate predicted value
-Pass.1949$nPass[13] <- alpha*Pass.1949$nPass[12] + (1-alpha)*Pass.1949$lt[12]
-
-# plot data and prediction
-ggplot(data = Pass.1949, aes(x = Month, y = nPass, color = Type)) + xlab("Month") + ylab("Number of Passengers (thousands)") + geom_line() + geom_point()
-```
 
 Plotting points further into the future would not be insightful, because we assume that there is no trend (long-term slope) in this data. Assuming no trend implies that the prediction for each month starting with February 1950 and beyond would be the exact same as the prediction for January 1950. There are limitations to the simple exponential smoothing method, so a more robust method is needed to make predictions when there is a trend in the data.
 
