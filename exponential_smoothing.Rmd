@@ -33,7 +33,7 @@ library(forecast)
 library(fpp2)          
 ```
 
-Furthermore, we'll use a couple data sets to illustrate.  The `goog` data is provided by the fpp2 package and `AirPassengers` is built into base R. Let's go ahead and set up training and validation sets:
+Furthermore, we'll use a couple data sets to illustrate.  The `goog` and `qcement` data are provided by the fpp2 package. Let's go ahead and set up training and validation sets:
 
 ```{r}
 # create training and validation of the Google stock data
@@ -41,8 +41,8 @@ goog.train <- window(goog, end = 900)
 goog.test <- window(goog, start = 901)
 
 # create training and validation of the AirPassengers data
-air.train <- window(AirPassengers, end = c(1959, 12))
-air.test <- window(AirPassengers, start = c(1960, 1))
+qcement.train <- window(qcement, end = c(2012, 4))
+qcement.test <- window(qcement, start = c(2013, 1))
 ```
 
 
@@ -320,8 +320,29 @@ gridExtra::grid.arrange(p1, p2, nrow = 1)
 
 To make predictions using data with a trend and seasonality, we turn to the Holt-Winters Seasonal Method. This method can be implemented with an "Additive" structure or a "Multiplicative" structure, where the choice of method depends on the data set. The Additive model is best used when the seasonal trend is of the same magnitude throughout the data set, while the Multiplicative Model is preferred when the magnitude of seasonality changes as time increases.
 
-### Additive
+Since the Google data does not have seasonality, we'll use the `qcement` data that we set up in the [Replication section](#replication).  This data has seasonality and trend; however, it is unclear if seasonality is additive or multiplicative.  We'll use the Holt-Winters method to identify the best fit model.
 
+### Additive
+For the Additive model, the regular equation form is:
+
+
+where $\alpha$, $\beta$, and $\gamma$ are the three smoothing parameters to deal with the level pattern, the trend, and the seasonality, respectively. Similar to SES and Holt's method, all three parameters are constrained to 0-1.  The component equations are as follows:
+
+$$
+\hat{y}_{t+h} = l_{t} + hb_{t} + s_{t-m+h^{+}_{m}}
+$$
+
+$$
+l_{t} = \alpha(y_{t} - s_{t-m}) + (1 - \alpha)(l_{t-1} + b_{t-1})
+$$
+
+$$
+b_{t} = \beta(l_{t} - l_{t-1}) + (1 - \beta)b_{t-1}
+$$
+
+$$
+s_{t} = \gamma(y_{t} - l_{t-1} - b_{t-1}) + (1-\gamma)s_{t-m}
+$$
 
 
 
